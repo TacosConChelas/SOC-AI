@@ -3,3 +3,26 @@
 
 # Knowledge base (local only)
 .Knowledge/
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+
+# Model weights
+*.gguf
+
+# Secrets
+.env
+
+# Tool caches
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+
+# Local scratch
+.superpowers/
