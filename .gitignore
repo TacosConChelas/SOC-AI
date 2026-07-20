@@ -1,0 +1,5 @@
+# Claude Code configuration
+.claude/
+
+# Knowledge base (local only)
+.Knowledge/
