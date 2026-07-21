@@ -7,13 +7,23 @@ from core.notify.render import render_slack, render_telegram
 
 def _content(**over: object) -> NotificationContent:
     base: dict = dict(
-        severity=Severity.HIGH, classification=Classification.ALERT, confidence=0.91,
-        summary="Nmap scan from 203.0.113.5", rationale="Repeated NSE <activity>",
-        src_ip_seen_before=True, related_events_24h=47, distinct_rules_from_src_24h=1,
-        events_last_10min=5, src_in_allowlist=False,
+        severity=Severity.HIGH,
+        classification=Classification.ALERT,
+        confidence=0.91,
+        summary="Nmap scan from 203.0.113.5",
+        rationale="Repeated NSE <activity>",
+        src_ip_seen_before=True,
+        related_events_24h=47,
+        distinct_rules_from_src_24h=1,
+        events_last_10min=5,
+        src_in_allowlist=False,
         suggested_actions=("Block 203.0.113.5 at the edge",),
-        matched_rule="2024358", src_ip="203.0.113.5", dst_ip="10.0.0.1",
-        sensor="edge-01", incident_group_key="9c2f4a8e0b21", flags=("severity_floor",),
+        matched_rule="2024358",
+        src_ip="203.0.113.5",
+        dst_ip="10.0.0.1",
+        sensor="edge-01",
+        incident_group_key="9c2f4a8e0b21",
+        flags=("severity_floor",),
     )
     base.update(over)
     return NotificationContent(**base)  # type: ignore[arg-type]

@@ -9,11 +9,23 @@ from core.notify.content import NotificationContent
 
 def _content() -> NotificationContent:
     return NotificationContent(
-        severity=Severity.HIGH, classification=Classification.ALERT, confidence=0.91,
-        summary="scan", rationale="why", src_ip_seen_before=True, related_events_24h=1,
-        distinct_rules_from_src_24h=1, events_last_10min=1, src_in_allowlist=False,
-        suggested_actions=("act",), matched_rule="r1", src_ip="1.2.3.4", dst_ip=None,
-        sensor="s1", incident_group_key="g1", flags=(),
+        severity=Severity.HIGH,
+        classification=Classification.ALERT,
+        confidence=0.91,
+        summary="scan",
+        rationale="why",
+        src_ip_seen_before=True,
+        related_events_24h=1,
+        distinct_rules_from_src_24h=1,
+        events_last_10min=1,
+        src_in_allowlist=False,
+        suggested_actions=("act",),
+        matched_rule="r1",
+        src_ip="1.2.3.4",
+        dst_ip=None,
+        sensor="s1",
+        incident_group_key="g1",
+        flags=(),
     )
 
 
@@ -51,10 +63,12 @@ def test_telegram_posts_to_sendmessage_with_chat_id() -> None:
 def test_multinotifier_fans_out_to_all_channels() -> None:
     seen_s, client_s = _capture()
     seen_t, client_t = _capture()
-    multi = MultiNotifier([
-        SlackNotifier("t", "#c", api_url="https://mock/s", client=client_s),
-        TelegramNotifier("t", "1", api_base="https://mock", client=client_t),
-    ])
+    multi = MultiNotifier(
+        [
+            SlackNotifier("t", "#c", api_url="https://mock/s", client=client_s),
+            TelegramNotifier("t", "1", api_base="https://mock", client=client_t),
+        ]
+    )
     multi.send(_content())
     assert len(seen_s) == 1
     assert len(seen_t) == 1

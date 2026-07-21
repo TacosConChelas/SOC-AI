@@ -30,9 +30,7 @@ class NotificationContent:
     flags: tuple[str, ...]
 
 
-def project_notification(
-    record: TriageRecord, event: UnifiedEvent, decision: NotifyDecision
-) -> NotificationContent:
+def project_notification(record: TriageRecord, event: UnifiedEvent, decision: NotifyDecision) -> NotificationContent:
     """Assemble the allowlist projection. The only place that decides what leaves the VPC."""
     ctx = record.context
     flags = decision.flags + (("context_degraded",) if ctx.lookup_degraded else ())
