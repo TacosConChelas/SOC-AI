@@ -7,7 +7,8 @@ import os
 import httpx
 
 from core.notify.content import NotificationContent
-from core.notify.render import render_slack, render_telegram
+from core.notify.render import render_slack, render_slack_system, render_telegram, render_telegram_system
+from core.notify.system import SystemNotification
 
 _SLACK_DEFAULT = "https://slack.com/api/chat.postMessage"
 _TELEGRAM_DEFAULT = "https://api.telegram.org"
@@ -22,10 +23,15 @@ class SlackNotifier:
         self._url = api_url or os.getenv("SLACK_API_URL") or _SLACK_DEFAULT
         self._client = client or httpx.Client(timeout=10.0)
 
-    def send(self, content: NotificationContent) -> None:
-        payload = {"channel": self._channel, **render_slack(content)}
+    def _post(self, payload: dict[str, object]) -> None:
         resp = self._client.post(self._url, headers={"Authorization": f"Bearer {self._token}"}, json=payload)
         resp.raise_for_status()
+
+    def send(self, content: NotificationContent) -> None:
+        self._post({"channel": self._channel, **render_slack(content)})
+
+    def send_system(self, notif: SystemNotification, count: int = 1) -> None:
+        self._post({"channel": self._channel, **render_slack_system(notif, count=count)})
 
 
 class TelegramNotifier:
@@ -37,10 +43,16 @@ class TelegramNotifier:
         self._base = (api_base or os.getenv("TELEGRAM_API_BASE") or _TELEGRAM_DEFAULT).rstrip("/")
         self._client = client or httpx.Client(timeout=10.0)
 
-    def send(self, content: NotificationContent) -> None:
+    def _post_text(self, text: str) -> None:
         url = f"{self._base}/bot{self._token}/sendMessage"
-        resp = self._client.post(url, json={"chat_id": self._chat_id, "text": render_telegram(content)})
+        resp = self._client.post(url, json={"chat_id": self._chat_id, "text": text})
         resp.raise_for_status()
+
+    def send(self, content: NotificationContent) -> None:
+        self._post_text(render_telegram(content))
+
+    def send_system(self, notif: SystemNotification, count: int = 1) -> None:
+        self._post_text(render_telegram_system(notif, count=count))
 
 
 class MultiNotifier:
@@ -50,6 +62,10 @@ class MultiNotifier:
     def send(self, content: NotificationContent) -> None:
         for ch in self.channels:
             ch.send(content)
+
+    def send_system(self, notif: SystemNotification, count: int = 1) -> None:
+        for ch in self.channels:
+            ch.send_system(notif, count=count)
 
     @classmethod
     def from_env(cls) -> MultiNotifier:
