@@ -11,6 +11,7 @@ from core.bus.config import BusConfig
 from core.bus.streams import RedisBus
 from core.contracts.event import UnifiedEvent
 from core.contracts.triage import Classification, Severity
+from core.notify.content import NotificationContent
 from core.orchestrator.graph import TriageDeps, TriageGraph
 from core.orchestrator.nodes.classify import OllamaClient
 from core.orchestrator.nodes.group import SessionStore
@@ -113,6 +114,37 @@ def test_second_alert_same_session_suppresses_notification() -> None:
     assert deps.notifier.send.call_count == 1
     assert state2["notify_decision"] is not None
     assert state2["notify_decision"].reason == "suppressed"
+
+
+class _CapturingNotifier:
+    def __init__(self) -> None:
+        self.sent: list[NotificationContent] = []
+
+    def send(self, content: NotificationContent) -> None:
+        self.sent.append(content)
+
+
+def test_notify_receives_projected_content() -> None:
+    notifier = _CapturingNotifier()
+    os_client = MagicMock()
+    os_client.search.return_value = _OS_RESPONSE
+    ollama = MagicMock(spec=OllamaClient)
+    ollama.chat.return_value = _VALID_LLM_JSON
+    dl = fakeredis.FakeRedis(decode_responses=True)
+    deps = TriageDeps(
+        os_client=os_client,
+        ollama_client=ollama,
+        session_store=SessionStore(client=fakeredis.FakeRedis(decode_responses=True), gap_seconds=300),
+        pg_conn=MagicMock(),
+        dead_letter_bus=RedisBus(client=dl, config=BusConfig(block_ms=100, socket_timeout_s=1.0)),
+        notifier=notifier,
+    )
+    TriageGraph(deps).run(_event())
+    assert len(notifier.sent) == 1
+    content = notifier.sent[0]
+    assert isinstance(content, NotificationContent)
+    assert content.severity is Severity.HIGH
+    assert content.src_ip == "203.0.113.5"
 
 
 def test_enrich_context_passed_to_model() -> None:

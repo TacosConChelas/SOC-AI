@@ -19,14 +19,12 @@ class SlackNotifier:
     ) -> None:
         self._token = token
         self._channel = channel
-        self._url = api_url or os.getenv("SLACK_API_URL", _SLACK_DEFAULT)
+        self._url = api_url or os.getenv("SLACK_API_URL") or _SLACK_DEFAULT
         self._client = client or httpx.Client(timeout=10.0)
 
     def send(self, content: NotificationContent) -> None:
         payload = {"channel": self._channel, **render_slack(content)}
-        resp = self._client.post(
-            self._url, headers={"Authorization": f"Bearer {self._token}"}, json=payload
-        )
+        resp = self._client.post(self._url, headers={"Authorization": f"Bearer {self._token}"}, json=payload)
         resp.raise_for_status()
 
 
@@ -36,7 +34,7 @@ class TelegramNotifier:
     ) -> None:
         self._token = token
         self._chat_id = chat_id
-        self._base = (api_base or os.getenv("TELEGRAM_API_BASE", _TELEGRAM_DEFAULT)).rstrip("/")
+        self._base = (api_base or os.getenv("TELEGRAM_API_BASE") or _TELEGRAM_DEFAULT).rstrip("/")
         self._client = client or httpx.Client(timeout=10.0)
 
     def send(self, content: NotificationContent) -> None:

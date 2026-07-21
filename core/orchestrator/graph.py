@@ -17,6 +17,7 @@ from core.contracts.triage import (
     TriageModelOutput,
     TriageRecord,
 )
+from core.notify.content import NotificationContent, project_notification
 from core.observability.metrics import DEADLETTER_TOTAL, NOTIFY_TOTAL
 from core.orchestrator.nodes.classify import ClassifyOutcome, OllamaClient, classify_event
 from core.orchestrator.nodes.enrich import enrich_event
@@ -26,7 +27,7 @@ from core.orchestrator.nodes.persist import persist_triage_record
 
 
 class Notifier(Protocol):
-    def send(self, record: TriageRecord, decision: NotifyDecision) -> None: ...
+    def send(self, content: NotificationContent) -> None: ...
 
 
 class TriageState(TypedDict):
@@ -120,7 +121,8 @@ class TriageGraph:
         assert state["session_state"] is not None
         decision = notify_decision(state["triage_record"], state["session_state"])
         if decision.should_notify:
-            self._d.notifier.send(state["triage_record"], decision)
+            content = project_notification(state["triage_record"], state["event"], decision)
+            self._d.notifier.send(content)
             self._d.session_store.mark_notified(state["session_state"].session_key)
         NOTIFY_TOTAL.labels(decision="notified" if decision.should_notify else "suppressed").inc()
         return {"notify_decision": decision}
