@@ -10,7 +10,6 @@ from core.notify.clients import MultiNotifier, SlackNotifier, TelegramNotifier
 from core.notify.system import SystemNotification
 from core.notify.system_notifier import CoalescingBuffer, SystemNotifier
 
-
 # ---------------------------------------------------------------------------
 # CoalescingBuffer
 # ---------------------------------------------------------------------------

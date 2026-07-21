@@ -30,6 +30,11 @@ class Notifier(Protocol):
     def send(self, content: NotificationContent) -> None: ...
 
 
+class SystemNotifierProto(Protocol):
+    def notify_dead_letter(self, record: DeadLetterRecord) -> None: ...
+    def notify_degradation(self, event: UnifiedEvent) -> None: ...
+
+
 class TriageState(TypedDict):
     event: UnifiedEvent
     context: TriageContext | None
@@ -48,6 +53,7 @@ class TriageDeps:
     pg_conn: Any
     dead_letter_bus: RedisBus
     notifier: Notifier
+    system_notifier: SystemNotifierProto
 
 
 def _derive_severity(event: UnifiedEvent) -> Severity:
@@ -78,7 +84,10 @@ class TriageGraph:
     # --- nodes ---
 
     def _enrich(self, state: TriageState) -> dict[str, Any]:
-        return {"context": enrich_event(state["event"], self._d.os_client)}
+        ctx = enrich_event(state["event"], self._d.os_client)
+        if ctx.lookup_degraded:
+            self._d.system_notifier.notify_degradation(state["event"])
+        return {"context": ctx}
 
     def _classify(self, state: TriageState) -> dict[str, Any]:
         assert state["context"] is not None
@@ -131,6 +140,7 @@ class TriageGraph:
         assert state["dead_letter"] is not None
         DEADLETTER_TOTAL.labels(reason=state["dead_letter"].reason.value).inc()
         self._d.dead_letter_bus.publish_dead_letter(state["dead_letter"])
+        self._d.system_notifier.notify_dead_letter(state["dead_letter"])
         return {}
 
     # --- routing ---

@@ -61,6 +61,7 @@ def _make_deps(*, llm_response: str = _VALID_LLM_JSON) -> TriageDeps:
         pg_conn=MagicMock(),
         dead_letter_bus=RedisBus(client=dl_redis, config=BusConfig(block_ms=100, socket_timeout_s=1.0)),
         notifier=MagicMock(),
+        system_notifier=MagicMock(),
     )
 
 
@@ -138,6 +139,7 @@ def test_notify_receives_projected_content() -> None:
         pg_conn=MagicMock(),
         dead_letter_bus=RedisBus(client=dl, config=BusConfig(block_ms=100, socket_timeout_s=1.0)),
         notifier=notifier,
+        system_notifier=MagicMock(),
     )
     TriageGraph(deps).run(_event())
     assert len(notifier.sent) == 1
@@ -198,3 +200,21 @@ def test_enrich_degraded_pipeline_still_completes() -> None:
     state = TriageGraph(deps).run(_event())
     assert state["triage_record"] is not None
     assert state["triage_record"].context.lookup_degraded is True
+
+
+def test_enrich_degraded_fires_system_notifier() -> None:
+    deps = _make_deps()
+    deps.os_client.search.side_effect = Exception("OS down")
+    TriageGraph(deps).run(_event())
+    deps.system_notifier.notify_degradation.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# System notifier — dead-letter path
+# ---------------------------------------------------------------------------
+
+
+def test_dead_letter_fires_system_notifier() -> None:
+    deps = _make_deps(llm_response="not valid json")
+    TriageGraph(deps).run(_event())
+    deps.system_notifier.notify_dead_letter.assert_called_once()
