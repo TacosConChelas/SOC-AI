@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from core.contracts.triage import Classification, Severity
 from core.notify.content import NotificationContent
+from core.notify.system import SystemNotification
 
 _EMOJI: dict[Severity, str] = {
     Severity.CRITICAL: "🔴",
@@ -70,3 +71,24 @@ def render_telegram(content: NotificationContent) -> str:
 
 def render_slack(content: NotificationContent) -> dict[str, object]:
     return {"text": "\n".join(ln for ln in _lines(content, escape=True) if ln), "mrkdwn": True}
+
+
+def _system_lines(n: SystemNotification, count: int) -> list[str]:
+    if n.kind == "enrichment_degraded":
+        header = f"⚑ enrichment degraded · sensor {n.sensor} · severity {n.severity.upper()}"
+        body = "OpenSearch lookup failed — zeroed context enviado al modelo (in-distribution)."
+    else:
+        header = f"⚠️ unclassified (system) · {n.reason} · sensor {n.sensor} · severity {n.severity.upper()}"
+        detail_line = f"detail: {n.detail}" if n.detail else ""
+        retries = f"retry_count: {n.retry_count}" if n.retry_count is not None else ""
+        body = "   ".join(p for p in [detail_line, retries] if p)
+    suffix = f"×{count} en la última ventana" if count > 1 else ""
+    return [ln for ln in [header, body, suffix] if ln]
+
+
+def render_telegram_system(notif: SystemNotification, count: int = 1) -> str:
+    return "\n".join(_system_lines(notif, count))
+
+
+def render_slack_system(notif: SystemNotification, count: int = 1) -> dict[str, object]:
+    return {"text": "\n".join(_system_lines(notif, count)), "mrkdwn": True}
