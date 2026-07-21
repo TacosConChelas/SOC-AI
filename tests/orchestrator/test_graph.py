@@ -53,9 +53,7 @@ def _make_deps(*, llm_response: str = _VALID_LLM_JSON) -> TriageDeps:
     return TriageDeps(
         os_client=os_client,
         ollama_client=ollama,
-        session_store=SessionStore(
-            client=fakeredis.FakeRedis(decode_responses=True), gap_seconds=300
-        ),
+        session_store=SessionStore(client=fakeredis.FakeRedis(decode_responses=True), gap_seconds=300),
         pg_conn=MagicMock(),
         dead_letter_redis=fakeredis.FakeRedis(decode_responses=True),
         notifier=MagicMock(),

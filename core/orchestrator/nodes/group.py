@@ -8,6 +8,7 @@ import redis
 
 from core.contracts.event import UnifiedEvent
 from core.contracts.triage import Classification, Severity
+from core.observability.metrics import GROUP_TOTAL
 
 _RANK: dict[Classification, int] = {
     Classification.NOISE: 0,
@@ -45,13 +46,27 @@ class SessionStore:
             group_key = str(uuid.uuid4())
             self._r.hset(key, mapping={"group_key": group_key, "opening_cls": classification, "notified": "0"})
             self._r.expire(key, self._ttl)
-            return SessionState(incident_group_key=group_key, is_new_session=True, escalated=False, session_was_notified=False, session_key=key)
+            GROUP_TOTAL.labels(action="new_session").inc()
+            return SessionState(
+                incident_group_key=group_key,
+                is_new_session=True,
+                escalated=False,
+                session_was_notified=False,
+                session_key=key,
+            )
 
         self._r.expire(key, self._ttl)
         group_key = existing["group_key"]
         escalated = _RANK[classification] > _RANK[Classification(existing["opening_cls"])]
         was_notified = existing.get("notified", "0") == "1"
-        return SessionState(incident_group_key=group_key, is_new_session=False, escalated=escalated, session_was_notified=was_notified, session_key=key)
+        GROUP_TOTAL.labels(action="folded").inc()
+        return SessionState(
+            incident_group_key=group_key,
+            is_new_session=False,
+            escalated=escalated,
+            session_was_notified=was_notified,
+            session_key=key,
+        )
 
     def mark_notified(self, session_key: str) -> None:
         """Set the notified flag for a session. Called after a notification is sent."""

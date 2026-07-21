@@ -90,9 +90,7 @@ def test_run_once_acks_after_processing() -> None:
     bus.publish_event(_event())
     Worker(bus=bus, graph=_mock_graph(), consumer_name="w0").run_once()
     # PEL should be empty after ACK
-    pending = r.xpending_range(
-        bus._config.events_stream, bus._config.consumer_group, "-", "+", 10
-    )
+    pending = r.xpending_range(bus._config.events_stream, bus._config.consumer_group, "-", "+", 10)
     assert pending == []
 
 
@@ -101,9 +99,7 @@ def test_run_once_dead_letter_still_acks() -> None:
     bus, r = _make_bus()
     bus.publish_event(_event())
     Worker(bus=bus, graph=_mock_graph(dead_letter=True), consumer_name="w0").run_once()
-    pending = r.xpending_range(
-        bus._config.events_stream, bus._config.consumer_group, "-", "+", 10
-    )
+    pending = r.xpending_range(bus._config.events_stream, bus._config.consumer_group, "-", "+", 10)
     assert pending == []
 
 
@@ -135,9 +131,7 @@ def test_run_claims_stale_before_polling() -> None:
     bus.read_one("crashed-worker")
 
     # New worker with min_idle_ms=0 so claim kicks in immediately
-    cfg2 = BusConfig(
-        block_ms=100, socket_timeout_s=1.0, claim_min_idle_ms=0
-    )
+    cfg2 = BusConfig(block_ms=100, socket_timeout_s=1.0, claim_min_idle_ms=0)
     bus2 = RedisBus(client=r, config=cfg2)
     graph = _mock_graph()
     stop = threading.Event()

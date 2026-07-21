@@ -6,15 +6,9 @@ import os
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from prometheus_client import Counter
-
 from core.contracts.event import UnifiedEvent, matched_rule_of
 from core.contracts.triage import TriageContext
-
-ENRICHMENT_FAILURES: Counter = Counter(
-    "soc_enrichment_failures_total",
-    "OpenSearch lookups that failed (degraded context emitted)",
-)
+from core.observability.metrics import ENRICHMENT_FAILURES
 
 _THIRTY_DAYS_S = 30 * 24 * 3600
 _TWENTY_FOUR_H_S = 24 * 3600
@@ -64,11 +58,7 @@ def enrich_event(event: UnifiedEvent, os_client: Any) -> TriageContext:  # noqa:
         if is_host_event:
             seen_before = False
         else:
-            ts_30d_ago = _iso(
-                event.timestamp.astimezone(UTC).replace(
-                    tzinfo=UTC
-                ) - timedelta(seconds=_THIRTY_DAYS_S)
-            )
+            ts_30d_ago = _iso(event.timestamp.astimezone(UTC).replace(tzinfo=UTC) - timedelta(seconds=_THIRTY_DAYS_S))
             resp = os_client.search(
                 index="wazuh-alerts-*",
                 body={
@@ -87,9 +77,7 @@ def enrich_event(event: UnifiedEvent, os_client: Any) -> TriageContext:  # noqa:
             seen_before = resp["hits"]["total"]["value"] > 0
 
         # 2. related_events_24h — count, same rule + agg_key, 24h, lt exclusive
-        ts_24h_ago = _iso(
-            event.timestamp.astimezone(UTC) - timedelta(seconds=_TWENTY_FOUR_H_S)
-        )
+        ts_24h_ago = _iso(event.timestamp.astimezone(UTC) - timedelta(seconds=_TWENTY_FOUR_H_S))
         field_24h = "agent.name" if is_host_event else "data.srcip"
         resp_24h = os_client.search(
             index="wazuh-alerts-*",
@@ -110,9 +98,7 @@ def enrich_event(event: UnifiedEvent, os_client: Any) -> TriageContext:  # noqa:
         count_24h = resp_24h["hits"]["total"]["value"]
 
         # 3. events_last_10min — count, same agg_key, 10min, lt exclusive
-        ts_10min_ago = _iso(
-            event.timestamp.astimezone(UTC) - timedelta(seconds=_TEN_MIN_S)
-        )
+        ts_10min_ago = _iso(event.timestamp.astimezone(UTC) - timedelta(seconds=_TEN_MIN_S))
         resp_10min = os_client.search(
             index="wazuh-alerts-*",
             body={

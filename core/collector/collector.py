@@ -7,21 +7,12 @@ import os
 from typing import Any
 
 import httpx
-from prometheus_client import Counter
 
 from core.bus.streams import RedisBus
 from core.collector.normalizer import normalize
+from core.observability.metrics import COLLECTOR_PUBLISHED, COLLECTOR_QUARANTINED
 
 log = logging.getLogger(__name__)
-
-_PUBLISHED: Counter = Counter(
-    "soc_collector_published_total",
-    "Alerts published to the event bus",
-)
-_QUARANTINED: Counter = Counter(
-    "soc_collector_quarantined_total",
-    "Alerts rejected at the normalization boundary (quarantined)",
-)
 
 _WAZUH_URL = os.getenv("WAZUH_API_URL", "https://localhost:55000")
 _WAZUH_USER = os.getenv("WAZUH_API_USER", "wazuh-wui")
@@ -94,9 +85,7 @@ class WazuhClient:
 
 def read_checkpoint(conn: Any) -> str | None:
     """Return the ISO timestamp of the last published alert, or None if no checkpoint."""
-    row = conn.execute(
-        "SELECT last_alert_id FROM collector_checkpoint WHERE id = 1"
-    ).fetchone()
+    row = conn.execute("SELECT last_alert_id FROM collector_checkpoint WHERE id = 1").fetchone()
     return str(row[0]) if row and row[0] else None
 
 
@@ -130,7 +119,7 @@ class Collector:
                 event = normalize(raw)
             except (ValueError, KeyError, TypeError) as exc:
                 log.warning("quarantine: normalize failed for alert %s — %s", raw.get("id"), exc)
-                _QUARANTINED.inc()
+                COLLECTOR_QUARANTINED.inc()
                 continue
 
             try:
@@ -140,7 +129,7 @@ class Collector:
                 break  # stop; checkpoint stays at last success to avoid skipping events
 
             published += 1
-            _PUBLISHED.inc()
+            COLLECTOR_PUBLISHED.inc()
             last_ts = raw.get("timestamp")
 
         if last_ts:

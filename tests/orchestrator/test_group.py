@@ -7,7 +7,7 @@ import pytest
 
 from core.contracts.event import UnifiedEvent
 from core.contracts.triage import Classification, Severity
-from core.orchestrator.nodes.group import SessionState, SessionStore
+from core.orchestrator.nodes.group import SessionStore
 
 
 def _event(src_ip: str | None = "203.0.113.5", rule_id: str = "1002", sensor: str = "h1") -> UnifiedEvent:
@@ -131,11 +131,10 @@ def test_no_escalation_downgrade(store: SessionStore) -> None:
 
 def test_expired_session_opens_new_session(store: SessionStore) -> None:
     """Session with gap_seconds=1 expires; next alert opens a new session."""
-    fast_store = SessionStore(
-        client=fakeredis.FakeRedis(decode_responses=True), gap_seconds=1
-    )
+    fast_store = SessionStore(client=fakeredis.FakeRedis(decode_responses=True), gap_seconds=1)
     first = fast_store.fold(_event(), Classification.ALERT, Severity.HIGH)
     import time
+
     time.sleep(1.1)
     second = fast_store.fold(_event(), Classification.ALERT, Severity.HIGH)
     assert second.is_new_session is True

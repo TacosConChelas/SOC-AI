@@ -17,6 +17,7 @@ from core.contracts.triage import (
     TriageModelOutput,
     TriageRecord,
 )
+from core.observability.metrics import DEADLETTER_TOTAL, NOTIFY_TOTAL
 from core.orchestrator.nodes.classify import ClassifyOutcome, OllamaClient, classify_event
 from core.orchestrator.nodes.enrich import enrich_event
 from core.orchestrator.nodes.group import SessionState, SessionStore
@@ -80,9 +81,7 @@ class TriageGraph:
 
     def _classify(self, state: TriageState) -> dict[str, Any]:
         assert state["context"] is not None
-        outcome: ClassifyOutcome = classify_event(
-            state["event"], state["context"], self._d.ollama_client
-        )
+        outcome: ClassifyOutcome = classify_event(state["event"], state["context"], self._d.ollama_client)
         return {"model_output": outcome.model_output, "dead_letter": outcome.dead_letter}
 
     def _group(self, state: TriageState) -> dict[str, Any]:
@@ -123,10 +122,12 @@ class TriageGraph:
         if decision.should_notify:
             self._d.notifier.send(state["triage_record"], decision)
             self._d.session_store.mark_notified(state["session_state"].session_key)
+        NOTIFY_TOTAL.labels(decision="notified" if decision.should_notify else "suppressed").inc()
         return {"notify_decision": decision}
 
     def _handle_dead_letter(self, state: TriageState) -> dict[str, Any]:
         assert state["dead_letter"] is not None
+        DEADLETTER_TOTAL.labels(reason=state["dead_letter"].reason.value).inc()
         publish_dead_letter(state["dead_letter"], self._d.dead_letter_redis)
         return {}
 

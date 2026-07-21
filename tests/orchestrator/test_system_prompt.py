@@ -19,8 +19,7 @@ def test_load_system_prompt_sha256_pinned() -> None:
     prompt = load_system_prompt()
     digest = hashlib.sha256(prompt.encode("utf-8")).hexdigest()
     assert digest == EXPECTED_SHA256, (
-        f"system.txt changed — update EXPECTED_SHA256 and confirm the diff is intentional.\n"
-        f"New digest: {digest}"
+        f"system.txt changed — update EXPECTED_SHA256 and confirm the diff is intentional.\nNew digest: {digest}"
     )
 
 

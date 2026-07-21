@@ -1,6 +1,6 @@
 """Tests for UnifiedEvent contract — step 1.1."""
 
-from datetime import datetime, timezone, timedelta
+from datetime import UTC, datetime, timedelta, timezone
 
 import pytest
 from pydantic import ValidationError
@@ -12,7 +12,7 @@ def _base() -> dict:
     return {
         "event_id": "evt-001",
         "schema_version": "unified-event@1",
-        "timestamp": datetime(2026, 7, 20, 12, 0, 0, tzinfo=timezone.utc),
+        "timestamp": datetime(2026, 7, 20, 12, 0, 0, tzinfo=UTC),
         "source_module": "wazuh",
         "sensor": "host-01",
         "source_alert_id": "alert-001",
@@ -105,7 +105,7 @@ def test_timestamp_normalized_to_utc():
     plus2 = timezone(timedelta(hours=2))
     d["timestamp"] = datetime(2026, 7, 20, 14, 0, 0, tzinfo=plus2)
     e = UnifiedEvent(**d)
-    assert e.timestamp.tzinfo == timezone.utc
+    assert e.timestamp.tzinfo == UTC
     assert e.timestamp.hour == 12
 
 

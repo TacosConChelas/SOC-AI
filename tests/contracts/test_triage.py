@@ -14,7 +14,6 @@ from core.contracts.triage import (
     TriageRecord,
 )
 
-
 VALID_MODEL_OUTPUT = {
     "classification": "alert",
     "confidence": 0.91,

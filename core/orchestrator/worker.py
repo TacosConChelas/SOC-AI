@@ -5,22 +5,9 @@ from __future__ import annotations
 import threading
 import time
 
-from prometheus_client import Counter, Histogram
-
 from core.bus.streams import PendingEvent, RedisBus
+from core.observability.metrics import EVENTS_PROCESSED, TRIAGE_DURATION
 from core.orchestrator.graph import TriageGraph, TriageState
-
-_EVENTS_PROCESSED: Counter = Counter(
-    "soc_events_processed_total",
-    "Events consumed and processed by the triage graph",
-    ["outcome"],  # "success" | "dead_letter"
-)
-
-_TRIAGE_DURATION: Histogram = Histogram(
-    "soc_triage_duration_seconds",
-    "End-to-end latency of one triage cycle (target ≤ 3 s median)",
-    buckets=[0.5, 1.0, 2.0, 3.0, 5.0, 10.0, 30.0],
-)
 
 
 class Worker:
@@ -61,8 +48,8 @@ class Worker:
         state: TriageState = self._graph.run(pending.event)
         elapsed = time.monotonic() - start
 
-        _TRIAGE_DURATION.observe(elapsed)
+        TRIAGE_DURATION.observe(elapsed)
         outcome = "dead_letter" if state["dead_letter"] is not None else "success"
-        _EVENTS_PROCESSED.labels(outcome=outcome).inc()
+        EVENTS_PROCESSED.labels(outcome=outcome).inc()
 
         self._bus.ack(pending.msg_id)

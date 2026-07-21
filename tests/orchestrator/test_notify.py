@@ -13,7 +13,7 @@ from core.contracts.triage import (
     TriageRecord,
 )
 from core.orchestrator.nodes.group import SessionState
-from core.orchestrator.nodes.notify import NotifyDecision, notify_decision
+from core.orchestrator.nodes.notify import notify_decision
 
 
 def _session(
@@ -72,23 +72,17 @@ def test_severity_floor_forces_candidate(sev: Severity) -> None:
 
 
 def test_severity_floor_noise_adds_false_positive_flag() -> None:
-    d = notify_decision(
-        _record(severity=Severity.HIGH, classification=Classification.NOISE), _session()
-    )
+    d = notify_decision(_record(severity=Severity.HIGH, classification=Classification.NOISE), _session())
     assert "false_positive_candidate" in d.flags
 
 
 def test_severity_floor_alert_no_false_positive_flag() -> None:
-    d = notify_decision(
-        _record(severity=Severity.HIGH, classification=Classification.ALERT), _session()
-    )
+    d = notify_decision(_record(severity=Severity.HIGH, classification=Classification.ALERT), _session())
     assert "false_positive_candidate" not in d.flags
 
 
 def test_severity_floor_informational_no_false_positive_flag() -> None:
-    d = notify_decision(
-        _record(severity=Severity.CRITICAL, classification=Classification.INFORMATIONAL), _session()
-    )
+    d = notify_decision(_record(severity=Severity.CRITICAL, classification=Classification.INFORMATIONAL), _session())
     assert "false_positive_candidate" not in d.flags
 
 
@@ -202,6 +196,7 @@ def test_suppressed_session_still_carries_floor_flag() -> None:
 
 def test_mark_notified_prevents_second_notification() -> None:
     import fakeredis
+
     from core.orchestrator.nodes.group import SessionStore
 
     r = fakeredis.FakeRedis(decode_responses=True)

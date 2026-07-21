@@ -37,9 +37,7 @@ class RedisBus:
         """Create consumer groups for both streams (idempotent — swallows BUSYGROUP)."""
         for stream in (self._config.events_stream, self._config.deadletter_stream):
             try:
-                self._client.xgroup_create(
-                    stream, self._config.consumer_group, id="0", mkstream=True
-                )
+                self._client.xgroup_create(stream, self._config.consumer_group, id="0", mkstream=True)
             except redis_lib.ResponseError as exc:
                 if "BUSYGROUP" not in str(exc):
                     raise
@@ -71,9 +69,7 @@ class RedisBus:
 
     def ack(self, msg_id: str) -> None:
         """XACK — fail-loud if message was not in the PEL."""
-        count = self._client.xack(
-            self._config.events_stream, self._config.consumer_group, msg_id
-        )
+        count = self._client.xack(self._config.events_stream, self._config.consumer_group, msg_id)
         if not count:
             raise RuntimeError(f"XACK failed for msg_id={msg_id!r} — not in PEL")
 

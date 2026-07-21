@@ -1,10 +1,7 @@
 """Tests for the enrich node — OpenSearch context lookup."""
 
 from datetime import UTC, datetime
-from ipaddress import IPv4Address
 from unittest.mock import MagicMock, patch
-
-import pytest
 
 from core.contracts.event import UnifiedEvent
 from core.contracts.triage import TriageContext

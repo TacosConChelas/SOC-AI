@@ -16,9 +16,7 @@ from core.contracts.event import UnifiedEvent
 
 def _live_client() -> redis_lib.Redis | None:
     try:
-        client = redis_lib.from_url(
-            "redis://localhost:6379", decode_responses=True, socket_timeout=2.0
-        )
+        client = redis_lib.from_url("redis://localhost:6379", decode_responses=True, socket_timeout=2.0)
         client.ping()
         return client
     except Exception:

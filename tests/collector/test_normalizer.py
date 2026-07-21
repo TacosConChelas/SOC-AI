@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 
 import pytest
 
-from core.collector.normalizer import normalize, _severity_from_level
+from core.collector.normalizer import _severity_from_level, normalize
 
 
 def _hids_alert(**overrides: object) -> dict:

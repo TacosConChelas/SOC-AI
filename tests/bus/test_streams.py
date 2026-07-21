@@ -10,7 +10,6 @@ from core.bus.streams import PendingEvent, RedisBus
 from core.contracts.deadletter import DeadLetterReason, DeadLetterRecord
 from core.contracts.event import UnifiedEvent
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------

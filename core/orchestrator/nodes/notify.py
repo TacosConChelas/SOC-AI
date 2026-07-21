@@ -10,9 +10,7 @@ from core.orchestrator.nodes.group import SessionState
 
 _SEVERITY_FLOOR = frozenset({Severity.HIGH, Severity.CRITICAL})
 
-_DEFAULT_CONFIDENCE_THRESHOLD = float(
-    os.getenv("SOC_CONFIDENCE_THRESHOLD", "0.7")
-)
+_DEFAULT_CONFIDENCE_THRESHOLD = float(os.getenv("SOC_CONFIDENCE_THRESHOLD", "0.7"))
 
 
 @dataclass(frozen=True)

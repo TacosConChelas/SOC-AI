@@ -12,6 +12,7 @@ from pydantic import ValidationError
 from core.contracts.deadletter import DeadLetterReason, DeadLetterRecord
 from core.contracts.event import UnifiedEvent
 from core.contracts.triage import TriageContext, TriageModelOutput
+from core.observability.metrics import CLASSIFY_TOTAL
 from core.orchestrator.prompts import build_user_message, load_system_prompt
 
 _MAX_RETRIES = 2
@@ -93,6 +94,7 @@ def classify_event(
 
             try:
                 output = TriageModelOutput.model_validate_json(raw)
+                CLASSIFY_TOTAL.labels(outcome="success").inc()
                 return ClassifyOutcome(model_output=output, dead_letter=None)
             except ValidationError as exc:
                 error_types = [type(e).__name__ for e in exc.errors()]
@@ -100,6 +102,7 @@ def classify_event(
 
         # exhausted retries
         detail = f"ValidationError after {_MAX_RETRIES} attempts: {', '.join(dict.fromkeys(error_types))}"[:500]
+        CLASSIFY_TOTAL.labels(outcome="parse_failure").inc()
         return ClassifyOutcome(
             model_output=None,
             dead_letter=DeadLetterRecord(
@@ -117,6 +120,7 @@ def classify_event(
 
     except OllamaUnavailableError as exc:
         detail = f"OllamaUnavailableError: {type(exc).__name__}"[:500]
+        CLASSIFY_TOTAL.labels(outcome="model_unavailable").inc()
         return ClassifyOutcome(
             model_output=None,
             dead_letter=DeadLetterRecord(
