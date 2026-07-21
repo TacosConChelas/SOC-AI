@@ -6,11 +6,9 @@ from pathlib import Path
 
 _PROMPT_FILE = Path(__file__).parent / "system.txt"
 
-# Zero-width and invisible control characters stripped before NFKC
 _ZW_RE = re.compile(r"[­​-‏⁠-⁤﻿]")
 _SPACE_RE = re.compile(r" {2,}")
 
-# Injection trigger phrases (lowercase, single-space-separated)
 _INJECTION_PHRASES: list[str] = [
     "ignore previous instructions",
     "ignore all instructions",
@@ -35,42 +33,35 @@ _INJECTION_PHRASES: list[str] = [
 _WINDOW = 64
 
 
-def _canonicalize(text: str) -> str:
-    """Strip zero-width chars, NFKC-normalize, collapse runs of spaces."""
-    text = _ZW_RE.sub("", text)
-    text = unicodedata.normalize("NFKC", text)
-    return _SPACE_RE.sub(" ", text)
-
-
 def _neutralize(text: str) -> str:
     """Canonical 64-char lookahead: replace injection triggers with [neutralized].
 
     Handles case, fullwidth (via NFKC), zero-width chars, and inter-character
     whitespace obfuscation by collapsing spaces within each lookahead window.
     """
-    # Apply irreversible canonical transform first
-    text = _canonicalize(text)
+    # Irreversible canonical transform: strip zero-width, NFKC-normalize, collapse spaces
+    text = _ZW_RE.sub("", text)
+    text = unicodedata.normalize("NFKC", text)
+    text = _SPACE_RE.sub(" ", text)
+
     out: list[str] = []
     i = 0
     n = len(text)
-    # Pre-compute stripped versions of phrases for window comparison
     phrase_stripped = [p.replace(" ", "") for p in _INJECTION_PHRASES]
     while i < n:
-        window = text[i : i + _WINDOW].lower()
-        window_nsp = window.replace(" ", "")
-        hit_idx: int | None = None
-        hit_nsp_len: int = 0
-        for idx, stripped in enumerate(phrase_stripped):
+        window_nsp = text[i : i + _WINDOW].lower().replace(" ", "")
+        matched = False
+        hit_nsp_len = 0
+        for stripped in phrase_stripped:
             if window_nsp.startswith(stripped):
-                hit_idx = idx
+                matched = True
                 hit_nsp_len = len(stripped)
                 break
-        if hit_idx is None:
+        if not matched:
             out.append(text[i])
             i += 1
         else:
             out.append("[neutralized]")
-            # Advance past exactly hit_nsp_len non-space characters
             consumed = 0
             while i < n and consumed < hit_nsp_len:
                 if text[i] != " ":

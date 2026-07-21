@@ -6,9 +6,9 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any, Protocol, TypedDict
 
-import redis
 from langgraph.graph import END, StateGraph
 
+from core.bus.streams import RedisBus
 from core.contracts.deadletter import DeadLetterRecord
 from core.contracts.event import UnifiedEvent
 from core.contracts.triage import (
@@ -22,7 +22,7 @@ from core.orchestrator.nodes.classify import ClassifyOutcome, OllamaClient, clas
 from core.orchestrator.nodes.enrich import enrich_event
 from core.orchestrator.nodes.group import SessionState, SessionStore
 from core.orchestrator.nodes.notify import NotifyDecision, notify_decision
-from core.orchestrator.nodes.persist import persist_triage_record, publish_dead_letter
+from core.orchestrator.nodes.persist import persist_triage_record
 
 
 class Notifier(Protocol):
@@ -45,7 +45,7 @@ class TriageDeps:
     ollama_client: OllamaClient
     session_store: SessionStore
     pg_conn: Any
-    dead_letter_redis: redis.Redis
+    dead_letter_bus: RedisBus
     notifier: Notifier
 
 
@@ -128,7 +128,7 @@ class TriageGraph:
     def _handle_dead_letter(self, state: TriageState) -> dict[str, Any]:
         assert state["dead_letter"] is not None
         DEADLETTER_TOTAL.labels(reason=state["dead_letter"].reason.value).inc()
-        publish_dead_letter(state["dead_letter"], self._d.dead_letter_redis)
+        self._d.dead_letter_bus.publish_dead_letter(state["dead_letter"])
         return {}
 
     # --- routing ---

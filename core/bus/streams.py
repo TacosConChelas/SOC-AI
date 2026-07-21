@@ -23,16 +23,6 @@ class RedisBus:
         self._client = client
         self._config = config
 
-    @classmethod
-    def from_config(cls, config: BusConfig | None = None) -> RedisBus:
-        cfg = config or BusConfig()
-        client = redis_lib.from_url(
-            cfg.redis_url,
-            decode_responses=True,
-            socket_timeout=cfg.socket_timeout_s,
-        )
-        return cls(client=client, config=cfg)
-
     def ensure_group(self) -> None:
         """Create consumer groups for both streams (idempotent — swallows BUSYGROUP)."""
         for stream in (self._config.events_stream, self._config.deadletter_stream):

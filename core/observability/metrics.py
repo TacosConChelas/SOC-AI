@@ -65,19 +65,6 @@ GROUP_TOTAL: Counter = Counter(
     ["action"],  # "new_session" | "folded"
 )
 
-# Internal map used by the contract test — must stay in sync with definitions above.
-_METRICS: dict[str, Counter | Histogram] = {
-    "soc_enrichment_failures_total": ENRICHMENT_FAILURES,
-    "soc_deadletter_total": DEADLETTER_TOTAL,
-    "soc_events_processed_total": EVENTS_PROCESSED,
-    "soc_triage_duration_seconds": TRIAGE_DURATION,
-    "soc_collector_published_total": COLLECTOR_PUBLISHED,
-    "soc_collector_quarantined_total": COLLECTOR_QUARANTINED,
-    "soc_classify_total": CLASSIFY_TOTAL,
-    "soc_notify_total": NOTIFY_TOTAL,
-    "soc_group_total": GROUP_TOTAL,
-}
-
 
 def start_http_server(port: int) -> None:
     """Start prometheus /metrics HTTP endpoint in a daemon thread."""

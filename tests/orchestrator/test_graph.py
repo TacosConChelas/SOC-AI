@@ -7,6 +7,8 @@ from unittest.mock import MagicMock
 
 import fakeredis
 
+from core.bus.config import BusConfig
+from core.bus.streams import RedisBus
 from core.contracts.event import UnifiedEvent
 from core.contracts.triage import Classification, Severity
 from core.orchestrator.graph import TriageDeps, TriageGraph
@@ -50,12 +52,13 @@ def _make_deps(*, llm_response: str = _VALID_LLM_JSON) -> TriageDeps:
     ollama = MagicMock(spec=OllamaClient)
     ollama.chat.return_value = llm_response
 
+    dl_redis = fakeredis.FakeRedis(decode_responses=True)
     return TriageDeps(
         os_client=os_client,
         ollama_client=ollama,
         session_store=SessionStore(client=fakeredis.FakeRedis(decode_responses=True), gap_seconds=300),
         pg_conn=MagicMock(),
-        dead_letter_redis=fakeredis.FakeRedis(decode_responses=True),
+        dead_letter_bus=RedisBus(client=dl_redis, config=BusConfig(block_ms=100, socket_timeout_s=1.0)),
         notifier=MagicMock(),
     )
 
@@ -136,7 +139,7 @@ def test_dead_letter_no_db_write() -> None:
 def test_dead_letter_published_to_stream() -> None:
     deps = _make_deps(llm_response="not valid json")
     TriageGraph(deps).run(_event())
-    assert len(deps.dead_letter_redis.xrange("triage:deadletter")) == 1
+    assert len(deps.dead_letter_bus._client.xrange("soc:deadletter")) == 1
 
 
 def test_dead_letter_no_notification() -> None:

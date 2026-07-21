@@ -1,4 +1,4 @@
-"""Tests for the persist node — mocks psycopg connection and Redis client."""
+"""Tests for the persist node — mocks psycopg connection."""
 
 from __future__ import annotations
 
@@ -6,20 +6,13 @@ import json
 from datetime import UTC, datetime
 from unittest.mock import MagicMock
 
-import fakeredis
-
-from core.contracts.deadletter import DeadLetterReason, DeadLetterRecord
 from core.contracts.triage import (
     Classification,
     Severity,
     TriageContext,
     TriageRecord,
 )
-from core.orchestrator.nodes.persist import (
-    _DEAD_LETTER_STREAM,
-    persist_triage_record,
-    publish_dead_letter,
-)
+from core.orchestrator.nodes.persist import persist_triage_record
 
 
 def _context() -> TriageContext:
@@ -49,29 +42,9 @@ def _triage_record() -> TriageRecord:
     )
 
 
-def _dead_letter_record() -> DeadLetterRecord:
-    return DeadLetterRecord(
-        alert_id="wz-2",
-        event_id="e-002",
-        source_module="wazuh",
-        sensor="h1",
-        severity="critical",
-        reason=DeadLetterReason.PARSE_FAILURE,
-        retry_count=2,
-        dead_lettered_at=datetime(2026, 7, 20, 12, 5, 0, tzinfo=UTC),
-        detail="ValidationError after 2 attempts: ValueError",
-    )
-
-
-# ---------------------------------------------------------------------------
-# persist_triage_record
-# ---------------------------------------------------------------------------
-
-
 def test_persist_calls_execute_and_commit() -> None:
     conn = MagicMock()
-    record = _triage_record()
-    persist_triage_record(record, conn)
+    persist_triage_record(_triage_record(), conn)
     conn.execute.assert_called_once()
     conn.commit.assert_called_once()
 
@@ -107,7 +80,6 @@ def test_persist_context_is_valid_json() -> None:
     conn = MagicMock()
     persist_triage_record(_triage_record(), conn)
     params = conn.execute.call_args[0][1]
-    # must not raise
     parsed = json.loads(params[7])
     assert isinstance(parsed, dict)
 
@@ -118,44 +90,3 @@ def test_persist_suggested_actions_is_json_list() -> None:
     params = conn.execute.call_args[0][1]
     parsed = json.loads(params[8])
     assert isinstance(parsed, list)
-
-
-# ---------------------------------------------------------------------------
-# publish_dead_letter
-# ---------------------------------------------------------------------------
-
-
-def test_dead_letter_goes_to_correct_stream() -> None:
-    r = fakeredis.FakeRedis(decode_responses=True)
-    publish_dead_letter(_dead_letter_record(), r)
-    entries = r.xrange(_DEAD_LETTER_STREAM)
-    assert len(entries) == 1
-
-
-def test_dead_letter_fields_are_present() -> None:
-    r = fakeredis.FakeRedis(decode_responses=True)
-    record = _dead_letter_record()
-    publish_dead_letter(record, r)
-    _, fields = r.xrange(_DEAD_LETTER_STREAM)[0]
-    assert fields["alert_id"] == record.alert_id
-    assert fields["event_id"] == record.event_id
-    assert fields["reason"] == record.reason
-    assert fields["retry_count"] == str(record.retry_count)
-    assert fields["detail"] == record.detail
-
-
-def test_dead_letter_dead_lettered_at_is_iso() -> None:
-    r = fakeredis.FakeRedis(decode_responses=True)
-    record = _dead_letter_record()
-    publish_dead_letter(record, r)
-    _, fields = r.xrange(_DEAD_LETTER_STREAM)[0]
-    # must parse back cleanly
-    parsed = datetime.fromisoformat(fields["dead_lettered_at"])
-    assert parsed == record.dead_lettered_at
-
-
-def test_dead_letter_multiple_records_accumulate() -> None:
-    r = fakeredis.FakeRedis(decode_responses=True)
-    for _ in range(3):
-        publish_dead_letter(_dead_letter_record(), r)
-    assert len(r.xrange(_DEAD_LETTER_STREAM)) == 3
