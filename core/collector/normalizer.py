@@ -14,11 +14,12 @@ from core.contracts.event import UnifiedEvent
 
 
 def _severity_from_level(level: int) -> str:
-    if level >= 12:
+    # ADR-0001 Wazuh bands: low 1–4, medium 5–9, high 10–13, critical 14–15.
+    if level >= 14:
         return "critical"
-    if level >= 8:
+    if level >= 10:
         return "high"
-    if level >= 4:
+    if level >= 5:
         return "medium"
     return "low"
 

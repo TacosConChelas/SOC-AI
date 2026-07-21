@@ -58,13 +58,16 @@ def _suricata_alert(**overrides: object) -> dict:
 @pytest.mark.parametrize(
     ("level", "expected"),
     [
+        # ADR-0001 Wazuh bands: low 1–4, medium 5–9, high 10–13, critical 14–15.
+        # Level 0 maps defensively to low (decisions.md:104).
         (0, "low"),
-        (3, "low"),
-        (4, "medium"),
-        (7, "medium"),
-        (8, "high"),
-        (11, "high"),
-        (12, "critical"),
+        (1, "low"),
+        (4, "low"),
+        (5, "medium"),
+        (9, "medium"),
+        (10, "high"),
+        (13, "high"),
+        (14, "critical"),
         (15, "critical"),
     ],
 )

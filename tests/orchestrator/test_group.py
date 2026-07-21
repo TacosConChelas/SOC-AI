@@ -10,7 +10,12 @@ from core.contracts.triage import Classification, Severity
 from core.orchestrator.nodes.group import SessionStore
 
 
-def _event(src_ip: str | None = "203.0.113.5", rule_id: str = "1002", sensor: str = "h1") -> UnifiedEvent:
+def _event(
+    src_ip: str | None = "203.0.113.5",
+    rule_id: str | None = "1002",
+    sensor: str = "h1",
+    signature: str | None = None,
+) -> UnifiedEvent:
     return UnifiedEvent(
         event_id="e-001",
         schema_version="unified-event@1",
@@ -24,6 +29,7 @@ def _event(src_ip: str | None = "203.0.113.5", rule_id: str = "1002", sensor: st
         raw_ref="opensearch://soc-alerts/wz-1",
         src_ip=src_ip,
         rule_id=rule_id,
+        signature=signature,
     )
 
 
@@ -79,6 +85,14 @@ def test_classification_not_part_of_session_sig(store: SessionStore) -> None:
     a = store.fold(_event(), Classification.NOISE, Severity.LOW)
     b = store.fold(_event(), Classification.ALERT, Severity.HIGH)
     assert a.incident_group_key == b.incident_group_key
+
+
+def test_signature_fallback_when_no_rule_id(store: SessionStore) -> None:
+    """Events without rule_id key on signature via matched_rule_of (ADR-0002 / spec §5),
+    never collapsing distinct signatures into a single 'ip:None' session."""
+    a = store.fold(_event(rule_id=None, signature="ET SCAN A"), Classification.ALERT, Severity.HIGH)
+    b = store.fold(_event(rule_id=None, signature="ET SCAN B"), Classification.ALERT, Severity.HIGH)
+    assert a.incident_group_key != b.incident_group_key
 
 
 # ---------------------------------------------------------------------------

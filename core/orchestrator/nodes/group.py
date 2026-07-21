@@ -6,7 +6,7 @@ from dataclasses import dataclass
 
 import redis
 
-from core.contracts.event import UnifiedEvent
+from core.contracts.event import UnifiedEvent, matched_rule_of
 from core.contracts.triage import Classification, Severity
 from core.observability.metrics import GROUP_TOTAL
 
@@ -37,7 +37,9 @@ class SessionStore:
         classification: Classification,
         severity: Severity,
     ) -> SessionState:
-        sig = f"{event.src_ip or event.sensor}:{event.rule_id}"
+        # ADR-0002: signature = src_ip + matched_rule (host fallback: sensor + matched_rule).
+        # matched_rule_of unifies rule_id/signature/event_type — same helper enrich uses.
+        sig = f"{event.src_ip or event.sensor}:{matched_rule_of(event)}"
         key = "session:" + hashlib.sha256(sig.encode()).hexdigest()
 
         existing: dict[str, str] = self._r.hgetall(key)  # type: ignore[assignment]
