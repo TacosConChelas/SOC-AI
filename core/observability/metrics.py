@@ -20,6 +20,9 @@ _LABEL_ALLOWLIST: dict[str, frozenset[str]] = {
     "soc_classify_total": frozenset({"outcome"}),
     "soc_notify_total": frozenset({"decision"}),
     "soc_group_total": frozenset({"action"}),
+    "soc_bus_acl_rejections_total": frozenset(),
+    "soc_bus_xadd_duration_seconds": frozenset(),
+    "soc_bus_xreadgroup_duration_seconds": frozenset(),
 }
 
 ENRICHMENT_FAILURES: Counter = Counter(
@@ -63,6 +66,22 @@ GROUP_TOTAL: Counter = Counter(
     "soc_group_total",
     "Group node session actions",
     ["action"],  # "new_session" | "folded"
+)
+
+# Bus KPI metrics — Familia 5 (security) + Familia 8 (bus latency)
+BUS_ACL_REJECTIONS: Counter = Counter(
+    "soc_bus_acl_rejections_total",
+    "Redis commands rejected by ACL (NOPERM / NOAUTH)",
+)
+BUS_XADD_DURATION: Histogram = Histogram(
+    "soc_bus_xadd_duration_seconds",
+    "Latency of XADD publish calls",
+    buckets=[0.001, 0.005, 0.01, 0.05, 0.1, 0.5],
+)
+BUS_XREADGROUP_DURATION: Histogram = Histogram(
+    "soc_bus_xreadgroup_duration_seconds",
+    "Latency of XREADGROUP consume calls (includes block time when idle)",
+    buckets=[0.1, 1.0, 5.0, 10.0, 20.0, 30.0],
 )
 
 

@@ -1,0 +1,351 @@
+# SOC-AI — docker compose
+#
+# Profiles:
+#   light  — passive monitoring: Wazuh + Suricata + OpenSearch + Dashboard
+#   full   — everything: light + Redis + Postgres + Ollama + app + observability
+#
+# Usage:
+#   docker compose --profile light up -d
+#   docker compose --profile full up -d
+#
+# First-time setup:
+#   1. cp services/redis/users.acl.example services/redis/users.acl && edit passwords
+#   2. cp secrets/*.example secrets/ and fill each file (one value per file, no newline)
+#   3. cp .env.example .env && fill WAZUH_*, POSTGRES_PASSWORD, GRAFANA_ADMIN_PASSWORD
+#   4. Generate Wazuh certs: https://documentation.wazuh.com/current/deployment-options/docker/
+#   5. docker compose --profile full up -d
+#   6. docker compose exec ollama ollama create soc-ai-triage -f /modelfiles/triage.Modelfile
+#
+# Auth Capa 1 (A4): secrets mounted as files; entrypoint.sh exports them as env vars.
+# AWS: replace ./secrets/* contents with fetch-secrets.sh from Parameter Store — compose unchanged.
+
+services:
+
+  # ─── LIGHT ──────────────────────────────────────────────────────────────────
+  # Passive monitoring: Wazuh Manager + OpenSearch + Dashboard + Suricata
+
+  wazuh.manager:
+    image: wazuh/wazuh-manager:4.9.2
+    profiles: [light, full]
+    hostname: wazuh.manager
+    restart: always
+    environment:
+      INDEXER_URL: https://wazuh.indexer:9200
+      INDEXER_USERNAME: admin
+      INDEXER_PASSWORD: ${WAZUH_INDEXER_PASSWORD}
+      FILEBEAT_SSL_VERIFICATION_MODE: full
+      SSL_CERTIFICATE_AUTHORITIES: /etc/ssl/root-ca.pem
+      SSL_CERTIFICATE: /etc/ssl/filebeat.pem
+      SSL_KEY: /etc/ssl/filebeat.key
+      API_USERNAME: wazuh-wui
+      API_PASSWORD: ${WAZUH_API_PASSWORD}
+    ports:
+      - "1514:1514/udp"
+      - "1515:1515"
+      - "514:514/udp"
+      - "55000:55000"
+    volumes:
+      - wazuh_api_configuration:/var/ossec/api/configuration
+      - wazuh_etc:/var/ossec/etc
+      - wazuh_logs:/var/ossec/logs
+      - wazuh_queue:/var/ossec/queue
+      - wazuh_var_multigroups:/var/ossec/var/multigroups
+      - wazuh_integrations:/var/ossec/integrations
+      - wazuh_active_response:/var/ossec/active-response/bin
+      - wazuh_agentless:/var/ossec/agentless
+      - wazuh_wodles:/var/ossec/wodles
+      - filebeat_etc:/etc/filebeat
+      - filebeat_var:/var/lib/filebeat
+      - ./services/wazuh/certs:/etc/ssl:ro
+      - ./services/wazuh/ossec-localfiles.conf:/var/ossec/etc/ossec_conf.d/localfiles.conf:ro
+      - suricata_logs:/var/log/suricata:ro
+    networks: [soc-net, soc-ingest-net]  # dual-homed: collector needs Wazuh API at :55000
+
+  wazuh.indexer:
+    image: wazuh/wazuh-indexer:4.9.2
+    profiles: [light, full]
+    hostname: wazuh.indexer
+    restart: always
+    environment:
+      OPENSEARCH_JAVA_OPTS: -Xms512m -Xmx512m
+    ulimits:
+      memlock: {soft: -1, hard: -1}
+      nofile: {soft: 65536, hard: 65536}
+    volumes:
+      - wazuh_indexer_data:/var/lib/wazuh-indexer
+      - ./services/wazuh/certs/wazuh-indexer.pem:/usr/share/wazuh-indexer/certs/indexer.pem:ro
+      - ./services/wazuh/certs/wazuh-indexer-key.pem:/usr/share/wazuh-indexer/certs/indexer-key.pem:ro
+      - ./services/wazuh/certs/root-ca.pem:/usr/share/wazuh-indexer/certs/root-ca.pem:ro
+    networks: [soc-net]
+
+  wazuh.dashboard:
+    image: wazuh/wazuh-dashboard:4.9.2
+    profiles: [light, full]
+    hostname: wazuh.dashboard
+    restart: always
+    depends_on:
+      wazuh.indexer:
+        condition: service_started
+    ports:
+      - "443:5601"
+    environment:
+      INDEXER_USERNAME: admin
+      INDEXER_PASSWORD: ${WAZUH_INDEXER_PASSWORD}
+      WAZUH_API_URL: https://wazuh.manager
+      WAZUH_API_PORT: 55000
+      API_USERNAME: wazuh-wui
+      API_PASSWORD: ${WAZUH_API_PASSWORD}
+    volumes:
+      - ./services/wazuh/certs/wazuh-dashboard.pem:/usr/share/wazuh-dashboard/certs/wazuh-dashboard.pem:ro
+      - ./services/wazuh/certs/wazuh-dashboard-key.pem:/usr/share/wazuh-dashboard/certs/wazuh-dashboard-key.pem:ro
+      - ./services/wazuh/certs/root-ca.pem:/usr/share/wazuh-dashboard/certs/root-ca.pem:ro
+    networks: [soc-net]
+
+  suricata:
+    image: jasonish/suricata:7.0
+    profiles: [light, full]
+    network_mode: host
+    cap_add: [NET_ADMIN, NET_RAW, SYS_NICE]
+    command: ["-i", "${SURICATA_INTERFACE:-eth0}"]
+    volumes:
+      - suricata_logs:/var/log/suricata
+
+  # ─── FULL ───────────────────────────────────────────────────────────────────
+  # App + Ollama + Redis + Postgres + Prometheus + Grafana + Plano 2 exporters
+
+  redis:
+    image: redis:7-alpine
+    profiles: [full]
+    restart: always
+    command: redis-server /etc/redis/redis.conf
+    volumes:
+      - redis_data:/data
+      - ./services/redis/redis.conf:/etc/redis/redis.conf:ro
+      - ./services/redis/users.acl:/etc/redis/users.acl:ro
+    networks: [soc-net, soc-ingest-net]  # dual-homed: both worker and collector need Redis
+
+  postgres:
+    image: postgres:15
+    profiles: [full]
+    restart: always
+    environment:
+      POSTGRES_USER: soc
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: soc
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./sql/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+    networks: [soc-net, soc-ingest-net]  # dual-homed: both worker and collector checkpoint here
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U soc -d soc"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  ollama:
+    image: ollama/ollama:latest
+    profiles: [full]
+    restart: always
+    runtime: nvidia
+    environment:
+      NVIDIA_VISIBLE_DEVICES: all
+    volumes:
+      - ollama_data:/root/.ollama
+      - ./data/models:/data/models:ro
+      - ./services/ollama/modelfiles:/modelfiles:ro
+    ports:
+      - "11434:11434"
+    networks: [soc-net]
+
+  worker:
+    build: .
+    command: ["core.orchestrator"]
+    profiles: [full]
+    restart: always
+    depends_on:
+      redis:
+        condition: service_started
+      postgres:
+        condition: service_healthy
+    # Credentials come from /run/secrets/ — entrypoint.sh exports them (no environment: for secrets)
+    secrets:
+      - postgres-dsn
+      - redis-worker-password
+      - opensearch-password
+      - slack-bot-token
+      - telegram-bot-token
+    environment:
+      METRICS_PORT: "9108"
+      OPENSEARCH_URL: https://wazuh.indexer:9200
+      OPENSEARCH_USER: admin
+      OLLAMA_URL: http://ollama:11434
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-soc-ai-triage}
+      SOC_REDIS_URL: redis://redis:6379
+      REDIS_USER: core-worker
+      SLACK_CHANNEL: ${SLACK_CHANNEL:-#soc-alerts}
+      SLACK_SYSTEM_CHANNEL: ${SLACK_SYSTEM_CHANNEL:-#soc-system}
+      TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID:-}
+      TELEGRAM_SYSTEM_CHAT_ID: ${TELEGRAM_SYSTEM_CHAT_ID:-}
+      SOC_SOURCE_ALLOWLIST: ${SOC_SOURCE_ALLOWLIST:-}
+    networks: [soc-net]
+    healthcheck:
+      test: ["CMD", "python", "-c",
+             "import urllib.request,os; urllib.request.urlopen('http://localhost:'+os.getenv('METRICS_PORT','9108')+'/metrics').read()"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  collector:
+    build: .
+    command: ["core.collector"]
+    profiles: [full]
+    restart: always
+    depends_on:
+      redis:
+        condition: service_started
+      postgres:
+        condition: service_healthy
+    secrets:
+      - postgres-dsn
+      - redis-collector-password
+      - wazuh-api-password
+    environment:
+      METRICS_PORT: "9109"
+      WAZUH_API_URL: https://wazuh.manager:55000
+      WAZUH_API_USER: wazuh-wui
+      SOC_REDIS_URL: redis://redis:6379
+      REDIS_USER: core-collector
+      POLL_INTERVAL_S: "10"
+    networks: [soc-ingest-net]  # isolated: cannot reach worker or ollama
+    healthcheck:
+      test: ["CMD", "python", "-c",
+             "import urllib.request,os; urllib.request.urlopen('http://localhost:'+os.getenv('METRICS_PORT','9109')+'/metrics').read()"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  prometheus:
+    image: prom/prometheus:v2.53.0
+    profiles: [full]
+    restart: always
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.retention.time=30d
+    volumes:
+      - ./services/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    ports:
+      - "9090:9090"
+    networks: [soc-net, soc-ingest-net]  # scrapes both worker (soc-net) and collector (soc-ingest-net)
+
+  grafana:
+    image: grafana/grafana:11.1.0
+    profiles: [full]
+    restart: always
+    depends_on:
+      prometheus:
+        condition: service_started
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      GF_AUTH_DISABLE_LOGIN_FORM: "false"
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      # Passed to datasources.yaml provisioning for TLS CA verification (no tlsSkipVerify)
+      WAZUH_INDEXER_PASSWORD: ${WAZUH_INDEXER_PASSWORD}
+      WAZUH_INDEXER_CA_CERT: ${WAZUH_INDEXER_CA_CERT}
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./services/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./services/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    ports:
+      - "3000:3000"
+    networks: [soc-net]
+
+  # Plano 2 exporters — internal only, never published to host
+  dcgm-exporter:
+    image: nvcr.io/nvidia/k8s/dcgm-exporter:3.3.9-3.4.0-ubuntu22.04
+    profiles: [full]
+    restart: always
+    runtime: nvidia
+    environment:
+      NVIDIA_VISIBLE_DEVICES: all
+    cap_add: [SYS_ADMIN]
+    networks: [soc-net]
+
+  node-exporter:
+    image: prom/node-exporter:v1.8.2
+    profiles: [full]
+    restart: always
+    pid: host
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    command:
+      - --path.procfs=/host/proc
+      - --path.sysfs=/host/sys
+      - --path.rootfs=/rootfs
+      - --collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)
+    networks: [soc-net]
+
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:v0.49.1
+    profiles: [full]
+    restart: always
+    privileged: true
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+      - /dev/disk/:/dev/disk:ro
+    networks: [soc-net]
+
+# ─── SECRETS ────────────────────────────────────────────────────────────────
+# File contents → /run/secrets/<name> inside container
+# entrypoint.sh maps: secret-name → SECRET_NAME env var
+# AWS: replace ./secrets/* with fetch-secrets.sh output — compose unchanged
+secrets:
+  postgres-dsn:
+    file: ./secrets/postgres-dsn
+  redis-worker-password:
+    file: ./secrets/redis-worker-password
+  redis-collector-password:
+    file: ./secrets/redis-collector-password
+  opensearch-password:
+    file: ./secrets/opensearch-password
+  wazuh-api-password:
+    file: ./secrets/wazuh-api-password
+  slack-bot-token:
+    file: ./secrets/slack-bot-token
+  telegram-bot-token:
+    file: ./secrets/telegram-bot-token
+
+# ─── VOLUMES ────────────────────────────────────────────────────────────────
+volumes:
+  wazuh_api_configuration:
+  wazuh_etc:
+  wazuh_logs:
+  wazuh_queue:
+  wazuh_var_multigroups:
+  wazuh_integrations:
+  wazuh_active_response:
+  wazuh_agentless:
+  wazuh_wodles:
+  filebeat_etc:
+  filebeat_var:
+  wazuh_indexer_data:
+  suricata_logs:
+  redis_data:
+  postgres_data:
+  ollama_data:
+  prometheus_data:
+  grafana_data:
+
+# ─── NETWORKS ───────────────────────────────────────────────────────────────
+networks:
+  soc-net:
+    driver: bridge
+  soc-ingest-net:
+    driver: bridge
+    internal: true  # no external access — ingest path is internal only

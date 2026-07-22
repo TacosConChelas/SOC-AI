@@ -16,8 +16,11 @@ build/
 # Model weights
 *.gguf
 
-# Secrets
+# Secrets — never commit real values
 .env
+secrets/*
+!secrets/*.example
+services/redis/users.acl
 
 # Tool caches
 .mypy_cache/

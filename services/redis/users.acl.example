@@ -1,0 +1,16 @@
+# Copy to services/redis/users.acl and set real passwords.
+# services/redis/users.acl is in .gitignore — never commit it.
+#
+# Passwords here must match secrets/redis-worker-password and secrets/redis-collector-password.
+# Command: ~<key-pattern>, +<command>, -<command>
+
+user default off nopass resetkeys resetcommands resetchannels
+
+# Worker: consume from events stream, publish to dead-letter, manage sessions
+user core-worker on >WORKER_PASSWORD_HERE ~soc:* ~session:* resetchannels \
+    +xgroup +xreadgroup +xack +xautoclaim +xadd \
+    +hset +hget +hgetall +expire
+
+# Collector: publish events only — cannot read or manage sessions
+user core-collector on >COLLECTOR_PASSWORD_HERE ~soc:events resetchannels \
+    +xadd +xgroup

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass
 from typing import Any, cast
 
@@ -10,6 +11,7 @@ import redis as redis_lib
 from core.bus.config import BusConfig
 from core.contracts.deadletter import DeadLetterRecord
 from core.contracts.event import UnifiedEvent
+from core.observability.metrics import BUS_ACL_REJECTIONS, BUS_XADD_DURATION, BUS_XREADGROUP_DURATION
 
 
 @dataclass
@@ -36,10 +38,19 @@ class RedisBus:
         """Serialize, re-validate roundtrip, then XADD to soc:events."""
         payload = event.model_dump_json()
         UnifiedEvent.model_validate_json(payload)  # roundtrip guard at bus boundary
-        return cast(str, self._client.xadd(self._config.events_stream, {"data": payload}))
+        t0 = time.monotonic()
+        try:
+            result = cast(str, self._client.xadd(self._config.events_stream, {"data": payload}))
+        except redis_lib.ResponseError as exc:
+            if "NOPERM" in str(exc) or "NOAUTH" in str(exc):
+                BUS_ACL_REJECTIONS.inc()
+            raise
+        BUS_XADD_DURATION.observe(time.monotonic() - t0)
+        return result
 
     def read_one(self, consumer: str) -> PendingEvent | None:
         """XREADGROUP count=1; returns None on timeout or empty stream."""
+        t0 = time.monotonic()
         raw = self._client.xreadgroup(
             groupname=self._config.consumer_group,
             consumername=consumer,
@@ -47,6 +58,7 @@ class RedisBus:
             count=1,
             block=self._config.block_ms,
         )
+        BUS_XREADGROUP_DURATION.observe(time.monotonic() - t0)
         result: list[Any] = cast(list[Any], raw)
         if not result:
             return None
@@ -90,4 +102,12 @@ class RedisBus:
     def publish_dead_letter(self, record: DeadLetterRecord) -> str:
         """XADD to soc:deadletter stream."""
         payload = record.model_dump_json()
-        return cast(str, self._client.xadd(self._config.deadletter_stream, {"data": payload}))
+        t0 = time.monotonic()
+        try:
+            result = cast(str, self._client.xadd(self._config.deadletter_stream, {"data": payload}))
+        except redis_lib.ResponseError as exc:
+            if "NOPERM" in str(exc) or "NOAUTH" in str(exc):
+                BUS_ACL_REJECTIONS.inc()
+            raise
+        BUS_XADD_DURATION.observe(time.monotonic() - t0)
+        return result

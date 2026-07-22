@@ -1,0 +1,30 @@
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    type: prometheus
+    uid: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    jsonData:
+      timeInterval: 15s
+
+  - name: OpenSearch
+    type: grafana-opensearch-datasource
+    uid: opensearch
+    access: proxy
+    url: https://wazuh.indexer:9200
+    basicAuth: true
+    basicAuthUser: admin
+    secureJsonData:
+      basicAuthPassword: ${WAZUH_INDEXER_PASSWORD}
+      # CA cert content (PEM) — set WAZUH_INDEXER_CA_CERT in .env after generating Wazuh certs
+      # export WAZUH_INDEXER_CA_CERT=$(cat services/wazuh/certs/root-ca.pem)
+      tlsCACert: ${WAZUH_INDEXER_CA_CERT}
+    jsonData:
+      database: wazuh-alerts-*
+      timeField: timestamp
+      version: "2.11.0"
+      flavor: opensearch
+      tlsAuthWithCACert: true
