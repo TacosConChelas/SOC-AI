@@ -1,0 +1,127 @@
+{
+  "title": "Infra Health",
+  "uid": "soc-infra-health",
+  "schemaVersion": 38,
+  "version": 1,
+  "refresh": "30s",
+  "tags": ["soc", "plano-2"],
+  "time": {"from": "now-1h", "to": "now"},
+  "timepicker": {},
+  "timezone": "browser",
+  "annotations": {"list": []},
+  "links": [],
+  "panels": [
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "GPU Utilization %",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {
+        "defaults": {"unit": "percent", "min": 0, "max": 100, "color": {"mode": "palette-classic"}},
+        "overrides": []
+      },
+      "options": {"tooltip": {"mode": "multi"}},
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "expr": "DCGM_FI_DEV_GPU_UTIL",
+          "legendFormat": "gpu{{gpu}}"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "GPU Memory Used (MiB)",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {
+        "defaults": {"unit": "decmbytes", "color": {"mode": "palette-classic"}},
+        "overrides": []
+      },
+      "options": {"tooltip": {"mode": "multi"}},
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "expr": "DCGM_FI_DEV_FB_USED",
+          "legendFormat": "used gpu{{gpu}}"
+        },
+        {
+          "refId": "B",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "expr": "DCGM_FI_DEV_FB_FREE",
+          "legendFormat": "free gpu{{gpu}}"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "Host CPU Usage %",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {
+        "defaults": {"unit": "percent", "min": 0, "max": 100, "color": {"mode": "palette-classic"}},
+        "overrides": []
+      },
+      "options": {"tooltip": {"mode": "multi"}},
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "expr": "100 - (avg by (instance) (rate(node_cpu_seconds_total{mode=\"idle\"}[5m])) * 100)",
+          "legendFormat": "cpu %"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "Host Memory Available (GiB)",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {
+        "defaults": {"unit": "decgbytes", "color": {"mode": "palette-classic"}},
+        "overrides": []
+      },
+      "options": {"tooltip": {"mode": "multi"}},
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "expr": "node_memory_MemAvailable_bytes / 1e9",
+          "legendFormat": "available"
+        },
+        {
+          "refId": "B",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "expr": "node_memory_MemTotal_bytes / 1e9",
+          "legendFormat": "total"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Container CPU Usage (rate/5m, top containers)",
+      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 16},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {
+        "defaults": {"unit": "short", "color": {"mode": "palette-classic"}},
+        "overrides": []
+      },
+      "options": {"tooltip": {"mode": "multi"}},
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "expr": "topk(8, rate(container_cpu_usage_seconds_total{name!=\"\"}[5m]))",
+          "legendFormat": "{{name}}"
+        }
+      ]
+    }
+  ]
+}

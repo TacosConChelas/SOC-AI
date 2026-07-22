@@ -1,0 +1,27 @@
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    type: prometheus
+    uid: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    jsonData:
+      timeInterval: 15s
+
+  - name: OpenSearch
+    type: grafana-opensearch-datasource
+    uid: opensearch
+    access: proxy
+    url: https://wazuh.indexer:9200
+    basicAuth: true
+    basicAuthUser: admin
+    secureJsonData:
+      basicAuthPassword: ${WAZUH_INDEXER_PASSWORD}
+    jsonData:
+      database: wazuh-alerts-*
+      timeField: timestamp
+      version: "2.11.0"
+      flavor: opensearch
+      tlsSkipVerify: true
