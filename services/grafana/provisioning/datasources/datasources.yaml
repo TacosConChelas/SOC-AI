@@ -19,9 +19,12 @@ datasources:
     basicAuthUser: admin
     secureJsonData:
       basicAuthPassword: ${WAZUH_INDEXER_PASSWORD}
+      # CA cert content (PEM) — set WAZUH_INDEXER_CA_CERT in .env after generating Wazuh certs
+      # export WAZUH_INDEXER_CA_CERT=$(cat services/wazuh/certs/root-ca.pem)
+      tlsCACert: ${WAZUH_INDEXER_CA_CERT}
     jsonData:
       database: wazuh-alerts-*
       timeField: timestamp
       version: "2.11.0"
       flavor: opensearch
-      tlsSkipVerify: true
+      tlsAuthWithCACert: true
