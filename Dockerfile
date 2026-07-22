@@ -11,6 +11,8 @@ RUN useradd -r -u 1001 -s /sbin/nologin soc
 
 WORKDIR /app
 COPY --from=builder /install /usr/local
+COPY entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
 
 # Healthcheck hits /metrics; METRICS_PORT is set per role in compose
 HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
@@ -18,5 +20,6 @@ HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
         "import urllib.request, os; urllib.request.urlopen('http://localhost:' + os.getenv('METRICS_PORT', '9108') + '/metrics').read()"
 
 USER soc
-ENTRYPOINT ["python", "-m"]
+# entrypoint.sh reads /run/secrets/* → env vars, then exec python -m <cmd>
+ENTRYPOINT ["/entrypoint.sh"]
 CMD ["core.orchestrator"]

@@ -8,15 +8,16 @@
 #   docker compose --profile light up -d
 #   docker compose --profile full up -d
 #
-# First-time Wazuh setup:
-#   Generate certs: see https://documentation.wazuh.com/current/deployment-options/docker/
-#   Place certs under services/wazuh/certs/ before starting
+# First-time setup:
+#   1. cp services/redis/users.acl.example services/redis/users.acl && edit passwords
+#   2. cp secrets/*.example secrets/ and fill each file (one value per file, no newline)
+#   3. cp .env.example .env && fill WAZUH_*, POSTGRES_PASSWORD, GRAFANA_ADMIN_PASSWORD
+#   4. Generate Wazuh certs: https://documentation.wazuh.com/current/deployment-options/docker/
+#   5. docker compose --profile full up -d
+#   6. docker compose exec ollama ollama create soc-ai-triage -f /modelfiles/triage.Modelfile
 #
-# First-time Ollama model:
-#   After `docker compose --profile full up -d`:
-#   docker compose exec ollama ollama create soc-ai-triage -f /modelfiles/triage.Modelfile
-#
-# A4 hardens secrets: replaces env_file with /run/secrets/ mounts.
+# Auth Capa 1 (A4): secrets mounted as files; entrypoint.sh exports them as env vars.
+# AWS: replace ./secrets/* contents with fetch-secrets.sh from Parameter Store — compose unchanged.
 
 services:
 
@@ -58,7 +59,7 @@ services:
       - ./services/wazuh/certs:/etc/ssl:ro
       - ./services/wazuh/ossec-localfiles.conf:/var/ossec/etc/ossec_conf.d/localfiles.conf:ro
       - suricata_logs:/var/log/suricata:ro
-    networks: [soc-net]
+    networks: [soc-net, soc-ingest-net]  # dual-homed: collector needs Wazuh API at :55000
 
   wazuh.indexer:
     image: wazuh/wazuh-indexer:4.9.2
@@ -120,7 +121,8 @@ services:
     volumes:
       - redis_data:/data
       - ./services/redis/redis.conf:/etc/redis/redis.conf:ro
-    networks: [soc-net]
+      - ./services/redis/users.acl:/etc/redis/users.acl:ro
+    networks: [soc-net, soc-ingest-net]  # dual-homed: both worker and collector need Redis
 
   postgres:
     image: postgres:15
@@ -133,7 +135,7 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./sql/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
-    networks: [soc-net]
+    networks: [soc-net, soc-ingest-net]  # dual-homed: both worker and collector checkpoint here
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U soc -d soc"]
       interval: 10s
@@ -165,13 +167,26 @@ services:
         condition: service_started
       postgres:
         condition: service_healthy
-    env_file: [.env]
+    # Credentials come from /run/secrets/ — entrypoint.sh exports them (no environment: for secrets)
+    secrets:
+      - postgres-dsn
+      - redis-worker-password
+      - opensearch-password
+      - slack-bot-token
+      - telegram-bot-token
     environment:
       METRICS_PORT: "9108"
       OPENSEARCH_URL: https://wazuh.indexer:9200
       OPENSEARCH_USER: admin
       OLLAMA_URL: http://ollama:11434
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-soc-ai-triage}
       SOC_REDIS_URL: redis://redis:6379
+      REDIS_USER: core-worker
+      SLACK_CHANNEL: ${SLACK_CHANNEL:-#soc-alerts}
+      SLACK_SYSTEM_CHANNEL: ${SLACK_SYSTEM_CHANNEL:-#soc-system}
+      TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID:-}
+      TELEGRAM_SYSTEM_CHAT_ID: ${TELEGRAM_SYSTEM_CHAT_ID:-}
+      SOC_SOURCE_ALLOWLIST: ${SOC_SOURCE_ALLOWLIST:-}
     networks: [soc-net]
     healthcheck:
       test: ["CMD", "python", "-c",
@@ -190,12 +205,18 @@ services:
         condition: service_started
       postgres:
         condition: service_healthy
-    env_file: [.env]
+    secrets:
+      - postgres-dsn
+      - redis-collector-password
+      - wazuh-api-password
     environment:
       METRICS_PORT: "9109"
       WAZUH_API_URL: https://wazuh.manager:55000
+      WAZUH_API_USER: wazuh-wui
       SOC_REDIS_URL: redis://redis:6379
-    networks: [soc-net]
+      REDIS_USER: core-collector
+      POLL_INTERVAL_S: "10"
+    networks: [soc-ingest-net]  # isolated: cannot reach worker or ollama
     healthcheck:
       test: ["CMD", "python", "-c",
              "import urllib.request,os; urllib.request.urlopen('http://localhost:'+os.getenv('METRICS_PORT','9109')+'/metrics').read()"]
@@ -215,7 +236,7 @@ services:
       - prometheus_data:/prometheus
     ports:
       - "9090:9090"
-    networks: [soc-net]
+    networks: [soc-net, soc-ingest-net]  # scrapes both worker (soc-net) and collector (soc-ingest-net)
 
   grafana:
     image: grafana/grafana:11.1.0
@@ -277,6 +298,26 @@ services:
       - /dev/disk/:/dev/disk:ro
     networks: [soc-net]
 
+# ─── SECRETS ────────────────────────────────────────────────────────────────
+# File contents → /run/secrets/<name> inside container
+# entrypoint.sh maps: secret-name → SECRET_NAME env var
+# AWS: replace ./secrets/* with fetch-secrets.sh output — compose unchanged
+secrets:
+  postgres-dsn:
+    file: ./secrets/postgres-dsn
+  redis-worker-password:
+    file: ./secrets/redis-worker-password
+  redis-collector-password:
+    file: ./secrets/redis-collector-password
+  opensearch-password:
+    file: ./secrets/opensearch-password
+  wazuh-api-password:
+    file: ./secrets/wazuh-api-password
+  slack-bot-token:
+    file: ./secrets/slack-bot-token
+  telegram-bot-token:
+    file: ./secrets/telegram-bot-token
+
 # ─── VOLUMES ────────────────────────────────────────────────────────────────
 volumes:
   wazuh_api_configuration:
@@ -302,3 +343,6 @@ volumes:
 networks:
   soc-net:
     driver: bridge
+  soc-ingest-net:
+    driver: bridge
+    internal: true  # no external access — ingest path is internal only
