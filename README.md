@@ -8,7 +8,7 @@ The inference runs **locally**, on your own hardware or your own cloud instance.
 
 > **Status:** Phase 1 (monitoring + triage), early development. The design is mature, the core is built and green; the two remaining Phase-1 blockers are the fine-tuned model and the cloud provisioning. See [Current status](#current-status).
 >
-> Maintainers: [@TacosConChelas](https://github.com/TacosConChelas) · [@Alexander-131](https://github.com/Alexander-131)
+> Maintainer: [@TacosConChelas](https://github.com/TacosConChelas)
 
 ---
 
@@ -312,4 +312,4 @@ The operational core is built on open-source components that permit commercial u
 
 ---
 
-*SOC-AI is built by [@TacosConChelas](https://github.com/TacosConChelas) and [@Alexander-131](https://github.com/Alexander-131).*
+*SOC-AI is built by [@TacosConChelas](https://github.com/TacosConChelas)*
