@@ -130,18 +130,12 @@ def test_classify_parse_failure_dead_letter_detail_no_verbatim() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_classify_ollama_unavailable_produces_dead_letter() -> None:
+def test_classify_ollama_unavailable_propagates() -> None:
+    """OllamaUnavailableError must propagate out of classify_event — never a
+    dead-letter (ADR-0004 §2: the worker leaves the message unacked instead)."""
     client = _fake_ollama("", raises=OllamaUnavailableError("connection refused"))
-    outcome = classify_event(_event(), _context(), client)
-    assert outcome.model_output is None
-    assert outcome.dead_letter is not None
-    assert outcome.dead_letter.reason == DeadLetterReason.MODEL_UNAVAILABLE
-
-
-def test_classify_ollama_unavailable_does_not_raise() -> None:
-    client = _fake_ollama("", raises=OllamaUnavailableError("timeout"))
-    outcome = classify_event(_event(), _context(), client)
-    assert isinstance(outcome, ClassifyOutcome)
+    with pytest.raises(OllamaUnavailableError):
+        classify_event(_event(), _context(), client)
 
 
 def test_classify_succeeds_on_second_attempt() -> None:

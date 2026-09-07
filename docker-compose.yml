@@ -76,7 +76,7 @@ services:
       - ./services/wazuh/certs/wazuh-indexer.pem:/usr/share/wazuh-indexer/certs/indexer.pem:ro
       - ./services/wazuh/certs/wazuh-indexer-key.pem:/usr/share/wazuh-indexer/certs/indexer-key.pem:ro
       - ./services/wazuh/certs/root-ca.pem:/usr/share/wazuh-indexer/certs/root-ca.pem:ro
-    networks: [soc-net]
+    networks: [soc-net, soc-ingest-net]  # dual-homed: collector queries alerts here (D-01)
 
   wazuh.dashboard:
     image: wazuh/wazuh-dashboard:4.9.2
@@ -201,6 +201,8 @@ services:
     profiles: [full]
     restart: always
     depends_on:
+      wazuh.indexer:
+        condition: service_started
       redis:
         condition: service_started
       postgres:
@@ -208,11 +210,11 @@ services:
     secrets:
       - postgres-dsn
       - redis-collector-password
-      - wazuh-api-password
+      - opensearch-password
     environment:
       METRICS_PORT: "9109"
-      WAZUH_API_URL: https://wazuh.manager:55000
-      WAZUH_API_USER: wazuh-wui
+      OPENSEARCH_URL: https://wazuh.indexer:9200
+      OPENSEARCH_USER: admin
       SOC_REDIS_URL: redis://redis:6379
       REDIS_USER: core-collector
       POLL_INTERVAL_S: "10"
@@ -314,8 +316,6 @@ secrets:
     file: ./secrets/redis-collector-password
   opensearch-password:
     file: ./secrets/opensearch-password
-  wazuh-api-password:
-    file: ./secrets/wazuh-api-password
   slack-bot-token:
     file: ./secrets/slack-bot-token
   telegram-bot-token:

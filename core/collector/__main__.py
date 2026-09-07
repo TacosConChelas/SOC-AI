@@ -10,6 +10,7 @@ import threading
 
 import psycopg
 import redis
+from opensearchpy import OpenSearch
 
 from core.bus.config import BusConfig
 from core.bus.streams import RedisBus
@@ -30,10 +31,10 @@ def _require(name: str) -> str:
 
 def main() -> None:
     pg_dsn = _require("POSTGRES_DSN")
-    wazuh_url = _require("WAZUH_API_URL")
-    wazuh_user = _require("WAZUH_API_USER")
-    wazuh_pass = _require("WAZUH_API_PASSWORD")
+    os_url = _require("OPENSEARCH_URL")
 
+    os_user = os.getenv("OPENSEARCH_USER")
+    os_password = os.getenv("OPENSEARCH_PASSWORD")
     redis_user = os.getenv("REDIS_USER")
     redis_password = os.getenv("REDIS_PASSWORD")
     metrics_port = int(os.getenv("METRICS_PORT", "9109"))
@@ -50,12 +51,14 @@ def main() -> None:
     bus = RedisBus(redis_client, config)
     bus.ensure_group()
 
-    pg_conn = psycopg.connect(pg_dsn)
-    collector = Collector(
-        WazuhClient(base_url=wazuh_url, user=wazuh_user, password=wazuh_pass),
-        bus,
-        pg_conn,
+    os_client = OpenSearch(
+        hosts=[os_url],
+        use_ssl=os_url.startswith("https"),
+        http_auth=(os_user, os_password) if (os_user and os_password) else None,
     )
+
+    pg_conn = psycopg.connect(pg_dsn)
+    collector = Collector(WazuhClient(os_client), bus, pg_conn)
 
     start_http_server(metrics_port)
     log.info("collector started — metrics on :%d, poll interval %.1fs", metrics_port, poll_interval_s)

@@ -73,8 +73,13 @@ def classify_event(
 ) -> ClassifyOutcome:
     """Call Ollama, validate JSON output, retry up to _MAX_RETRIES times.
 
-    Never raises. Never publishes. Returns ClassifyOutcome with either
-    model_output (success) or dead_letter (permanent failure).
+    Never publishes. Returns ClassifyOutcome with either model_output (success)
+    or dead_letter (permanent parse failure).
+
+    OllamaUnavailableError is deliberately NOT caught here — it propagates out
+    of the graph so the worker can leave the message unacked and back off
+    instead of losing it (ADR-0004 §2: connectivity failures are never a
+    dead-letter).
     """
     system_prompt = load_system_prompt()
     user_msg = build_user_message(
@@ -82,56 +87,34 @@ def classify_event(
         context.model_dump_json(),
     )
 
-    try:
-        raw: str | None = None
-        error_types: list[str] = []
+    raw: str | None = None
+    error_types: list[str] = []
 
-        for attempt in range(_MAX_RETRIES):
-            try:
-                raw = ollama_client.chat(system_prompt, user_msg)
-            except OllamaUnavailableError:
-                raise  # propagate to outer handler
+    for _attempt in range(_MAX_RETRIES):
+        raw = ollama_client.chat(system_prompt, user_msg)
 
-            try:
-                output = TriageModelOutput.model_validate_json(raw)
-                CLASSIFY_TOTAL.labels(outcome="success").inc()
-                return ClassifyOutcome(model_output=output, dead_letter=None)
-            except ValidationError as exc:
-                error_types = [type(e).__name__ for e in exc.errors()]
-                # no feedback — identical prompt on retry (hard rule: no verbatim echo)
+        try:
+            output = TriageModelOutput.model_validate_json(raw)
+            CLASSIFY_TOTAL.labels(outcome="success").inc()
+            return ClassifyOutcome(model_output=output, dead_letter=None)
+        except ValidationError as exc:
+            error_types = [type(e).__name__ for e in exc.errors()]
+            # no feedback — identical prompt on retry (hard rule: no verbatim echo)
 
-        # exhausted retries
-        detail = f"ValidationError after {_MAX_RETRIES} attempts: {', '.join(dict.fromkeys(error_types))}"[:500]
-        CLASSIFY_TOTAL.labels(outcome="parse_failure").inc()
-        return ClassifyOutcome(
-            model_output=None,
-            dead_letter=DeadLetterRecord(
-                alert_id=event.source_alert_id,
-                event_id=event.event_id,
-                source_module=event.source_module,
-                sensor=event.sensor,
-                severity=event.severity_hint,
-                reason=DeadLetterReason.PARSE_FAILURE,
-                retry_count=_MAX_RETRIES,
-                dead_lettered_at=datetime.now(UTC),
-                detail=detail or "ValidationError: unknown",
-            ),
-        )
-
-    except OllamaUnavailableError as exc:
-        detail = f"OllamaUnavailableError: {type(exc).__name__}"[:500]
-        CLASSIFY_TOTAL.labels(outcome="model_unavailable").inc()
-        return ClassifyOutcome(
-            model_output=None,
-            dead_letter=DeadLetterRecord(
-                alert_id=event.source_alert_id,
-                event_id=event.event_id,
-                source_module=event.source_module,
-                sensor=event.sensor,
-                severity=event.severity_hint,
-                reason=DeadLetterReason.MODEL_UNAVAILABLE,
-                retry_count=0,
-                dead_lettered_at=datetime.now(UTC),
-                detail=detail,
-            ),
-        )
+    # exhausted retries
+    detail = f"ValidationError after {_MAX_RETRIES} attempts: {', '.join(dict.fromkeys(error_types))}"[:500]
+    CLASSIFY_TOTAL.labels(outcome="parse_failure").inc()
+    return ClassifyOutcome(
+        model_output=None,
+        dead_letter=DeadLetterRecord(
+            alert_id=event.source_alert_id,
+            event_id=event.event_id,
+            source_module=event.source_module,
+            sensor=event.sensor,
+            severity=event.severity_hint,
+            reason=DeadLetterReason.PARSE_FAILURE,
+            retry_count=_MAX_RETRIES,
+            dead_lettered_at=datetime.now(UTC),
+            detail=detail or "ValidationError: unknown",
+        ),
+    )

@@ -1,12 +1,15 @@
-"""Collector — polls Wazuh API, normalizes alerts, publishes to bus, checkpoints in Postgres."""
+"""Collector — polls the Wazuh Indexer (OpenSearch), normalizes alerts, publishes to bus, checkpoints in Postgres.
+
+D-01: in Wazuh 4.x, alerts live in the Wazuh Indexer (OpenSearch, index
+wazuh-alerts-4.x-*) — the Manager REST API on port 55000 does not serve alerts
+at all. See .Knowledge/decisions.md (D-01, task 23) and
+.Knowledge/Diagrams/Diagram_L3_Ingestion_Bus.md §L3-a.
+"""
 
 from __future__ import annotations
 
 import logging
-import os
 from typing import Any
-
-import httpx
 
 from core.bus.streams import RedisBus
 from core.collector.normalizer import normalize
@@ -14,73 +17,45 @@ from core.observability.metrics import COLLECTOR_PUBLISHED, COLLECTOR_QUARANTINE
 
 log = logging.getLogger(__name__)
 
-_WAZUH_URL = os.getenv("WAZUH_API_URL", "https://localhost:55000")
-_WAZUH_USER = os.getenv("WAZUH_API_USER", "wazuh-wui")
-_WAZUH_PASS = os.getenv("WAZUH_API_PASSWORD", "")
+_ALERTS_INDEX = "wazuh-alerts-4.x-*"
 _PAGE_SIZE = 100
 
 
 class WazuhClient:
-    """Minimal Wazuh v4 REST client — JWT auth + paginated alert fetch."""
+    """Wazuh Indexer (OpenSearch) client — search_after pagination over wazuh-alerts-4.x-*.
 
-    def __init__(
-        self,
-        base_url: str = _WAZUH_URL,
-        user: str = _WAZUH_USER,
-        password: str = _WAZUH_PASS,
-    ) -> None:
-        self._base = base_url.rstrip("/")
-        self._user = user
-        self._password = password
-        self._token: str | None = None
+    Takes an already-constructed opensearch-py client, same pattern as the
+    enrich node / orchestrator entrypoint (one OpenSearch client per process,
+    injected in rather than built from raw credentials here).
+    """
 
-    def _authenticate(self, client: httpx.Client) -> str:
-        resp = client.post(
-            f"{self._base}/security/user/authenticate",
-            auth=(self._user, self._password),
-        )
-        resp.raise_for_status()
-        return str(resp.json()["data"]["token"])
+    def __init__(self, os_client: Any, index: str = _ALERTS_INDEX) -> None:
+        self._os = os_client
+        self._index = index
 
     def fetch_alerts(
         self,
         since_timestamp: str | None = None,
         limit: int = _PAGE_SIZE,
     ) -> list[dict[str, Any]]:
-        """Return up to `limit` alerts newer than since_timestamp (ISO), sorted ascending.
+        """Return up to `limit` alerts strictly after since_timestamp, sorted ascending.
 
-        Handles 401 by re-authenticating once.
-        TLS: set WAZUH_CA_BUNDLE to the Wazuh root CA path (compose volume /certs/root-ca.pem).
+        Pagination via sort [@timestamp, id] + search_after (no scroll API). The
+        Postgres checkpoint only tracks the timestamp component; the empty-string
+        id floor keeps this a strict "timestamp >" resume, matching the previous
+        semantics (at-least-once delivery, per D-01 / task 23).
         """
-        params: dict[str, Any] = {"limit": limit, "sort": "+timestamp"}
-        if since_timestamp:
-            params["q"] = f"timestamp>{since_timestamp}"
+        body: dict[str, Any] = {
+            "size": limit,
+            "query": {"match_all": {}},
+            "sort": [{"@timestamp": "asc"}, {"id": "asc"}],
+        }
+        if since_timestamp is not None:
+            body["search_after"] = [since_timestamp, ""]
 
-        # Wazuh ships with a self-signed cert. Set WAZUH_CA_BUNDLE to the path of
-        # the Wazuh root CA (e.g. /certs/root-ca.pem from the compose volume).
-        # Leaving it unset keeps verify=True (system CA store).
-        ca = os.getenv("WAZUH_CA_BUNDLE")
-        verify: bool | str = ca if ca else True
-
-        with httpx.Client(verify=verify, timeout=30.0) as client:
-            if self._token is None:
-                self._token = self._authenticate(client)
-
-            def _get() -> httpx.Response:
-                return client.get(
-                    f"{self._base}/alerts",
-                    headers={"Authorization": f"Bearer {self._token}"},
-                    params=params,
-                )
-
-            resp = _get()
-            if resp.status_code == 401:
-                self._token = self._authenticate(client)
-                resp = _get()
-            resp.raise_for_status()
-
-        items: list[dict[str, Any]] = resp.json().get("data", {}).get("affected_items", [])
-        return items
+        resp = self._os.search(index=self._index, body=body)
+        hits: list[dict[str, Any]] = resp["hits"]["hits"]
+        return [hit["_source"] for hit in hits]
 
 
 def read_checkpoint(conn: Any) -> str | None:

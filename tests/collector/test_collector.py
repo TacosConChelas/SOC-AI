@@ -170,3 +170,72 @@ def test_poll_once_quarantine_does_not_stop_valid_alerts() -> None:
 
     count = Collector(wazuh=wazuh, bus=bus, pg_conn=pg).poll_once()
     assert count == 2
+
+
+# ---------------------------------------------------------------------------
+# WazuhClient — OpenSearch query construction (D-01: indexer, never the
+# Manager REST API on port 55000)
+# ---------------------------------------------------------------------------
+
+
+def _os_response(alerts: list[dict]) -> dict:
+    return {"hits": {"hits": [{"_source": a} for a in alerts]}}
+
+
+def test_wazuh_client_queries_wazuh_alerts_index() -> None:
+    os_client = MagicMock()
+    os_client.search.return_value = _os_response([])
+
+    WazuhClient(os_client).fetch_alerts()
+
+    assert os_client.search.call_args.kwargs["index"] == "wazuh-alerts-4.x-*"
+
+
+def test_wazuh_client_sorts_by_timestamp_and_id() -> None:
+    os_client = MagicMock()
+    os_client.search.return_value = _os_response([])
+
+    WazuhClient(os_client).fetch_alerts()
+
+    body = os_client.search.call_args.kwargs["body"]
+    assert body["sort"] == [{"@timestamp": "asc"}, {"id": "asc"}]
+
+
+def test_wazuh_client_no_search_after_without_checkpoint() -> None:
+    os_client = MagicMock()
+    os_client.search.return_value = _os_response([])
+
+    WazuhClient(os_client).fetch_alerts(since_timestamp=None)
+
+    body = os_client.search.call_args.kwargs["body"]
+    assert "search_after" not in body
+
+
+def test_wazuh_client_uses_search_after_with_checkpoint() -> None:
+    os_client = MagicMock()
+    os_client.search.return_value = _os_response([])
+    ts = "2026-07-20T12:00:00.000+0000"
+
+    WazuhClient(os_client).fetch_alerts(since_timestamp=ts)
+
+    body = os_client.search.call_args.kwargs["body"]
+    assert body["search_after"] == [ts, ""]
+
+
+def test_wazuh_client_respects_limit() -> None:
+    os_client = MagicMock()
+    os_client.search.return_value = _os_response([])
+
+    WazuhClient(os_client).fetch_alerts(limit=25)
+
+    assert os_client.search.call_args.kwargs["body"]["size"] == 25
+
+
+def test_wazuh_client_returns_source_documents() -> None:
+    os_client = MagicMock()
+    alert = _raw_alert()
+    os_client.search.return_value = _os_response([alert])
+
+    result = WazuhClient(os_client).fetch_alerts()
+
+    assert result == [alert]

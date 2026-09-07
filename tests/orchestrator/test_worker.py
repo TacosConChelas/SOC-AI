@@ -11,6 +11,7 @@ import fakeredis
 from core.bus.config import BusConfig
 from core.bus.streams import RedisBus
 from core.contracts.event import UnifiedEvent
+from core.orchestrator.nodes.classify import OllamaUnavailableError
 from core.orchestrator.worker import Worker
 
 
@@ -154,6 +155,87 @@ def test_run_exits_on_stop_event() -> None:
     # Should return almost immediately (no stale, stop already set)
     Worker(bus=bus, graph=graph).run(stop=stop)
     graph.run.assert_not_called()
+
+
+def test_run_once_ollama_unavailable_does_not_ack() -> None:
+    """ADR-0004 §2: a transient Ollama outage must never lose the message."""
+    bus, r = _make_bus()
+    bus.publish_event(_event())
+    graph = MagicMock()
+    graph.run.side_effect = OllamaUnavailableError("connection refused")
+    worker = Worker(bus=bus, graph=graph, consumer_name="w0")
+
+    worker.run_once()
+
+    pending = r.xpending_range(bus._config.events_stream, bus._config.consumer_group, "-", "+", 10)
+    assert len(pending) == 1
+
+
+def test_run_once_ollama_unavailable_backs_off_exponentially(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    bus, _ = _make_bus()
+    bus.publish_event(_event())
+    bus.publish_event(_event())
+    graph = MagicMock()
+    graph.run.side_effect = OllamaUnavailableError("down")
+    worker = Worker(bus=bus, graph=graph, consumer_name="w0")
+
+    sleeps: list[float] = []
+    monkeypatch.setattr("core.orchestrator.worker.time.sleep", lambda s: sleeps.append(s))
+
+    worker.run_once()
+    worker.run_once()
+
+    assert sleeps == [1.0, 2.0]
+
+
+def test_run_once_ollama_backoff_caps_at_30s(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    bus, _ = _make_bus()
+    for _ in range(8):
+        bus.publish_event(_event())
+    graph = MagicMock()
+    graph.run.side_effect = OllamaUnavailableError("down")
+    worker = Worker(bus=bus, graph=graph, consumer_name="w0")
+
+    sleeps: list[float] = []
+    monkeypatch.setattr("core.orchestrator.worker.time.sleep", lambda s: sleeps.append(s))
+
+    for _ in range(8):
+        worker.run_once()
+
+    assert sleeps[-1] == 30.0
+    assert max(sleeps) == 30.0
+
+
+def test_run_once_ollama_backoff_resets_after_success(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    bus, _ = _make_bus()
+    for _ in range(3):
+        bus.publish_event(_event())
+    graph = MagicMock()
+    graph.run.side_effect = [
+        OllamaUnavailableError("down"),
+        _mock_graph().run.return_value,
+        OllamaUnavailableError("down"),
+    ]
+    worker = Worker(bus=bus, graph=graph, consumer_name="w0")
+
+    sleeps: list[float] = []
+    monkeypatch.setattr("core.orchestrator.worker.time.sleep", lambda s: sleeps.append(s))
+
+    worker.run_once()  # fails -> sleep(1.0), backoff -> 2.0
+    worker.run_once()  # succeeds -> acks, backoff resets -> 1.0
+    worker.run_once()  # fails again -> sleep(1.0), not 4.0
+
+    assert sleeps == [1.0, 1.0]
+
+
+def test_run_once_dead_letter_from_parse_failure_still_acks() -> None:
+    """Non-connectivity dead-letters (e.g. parse_failure) must keep acking —
+    only OllamaUnavailableError skips the ack."""
+    bus, r = _make_bus()
+    bus.publish_event(_event())
+    Worker(bus=bus, graph=_mock_graph(dead_letter=True), consumer_name="w0").run_once()
+    pending = r.xpending_range(bus._config.events_stream, bus._config.consumer_group, "-", "+", 10)
+    assert pending == []
 
 
 def test_run_processes_events_until_stopped() -> None:
