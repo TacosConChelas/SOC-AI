@@ -41,15 +41,18 @@ def _lines(c: NotificationContent, *, escape: bool) -> list[str]:
     if c.flags:
         pretty = ", ".join(f.replace("_", " ") for f in c.flags)
         flag_line = f"⚑ {pretty}"
-    actions = "\n".join(f"{i}. {_defang(m(a))}" for i, a in enumerate(c.suggested_actions, 1))
+    # _defang applies only to structured IP fields (ADR-0004 §4) — never to free text from
+    # the model (summary, rationale, suggested_actions), which would corrupt normal prose
+    # like "10 min." into "10 min[.]".
+    actions = "\n".join(f"{i}. {m(a)}" for i, a in enumerate(c.suggested_actions, 1))
     footer_src = _defang(c.src_ip) if c.src_ip else "—"
     footer_dst = _defang(c.dst_ip) if c.dst_ip else "—"
     lines = [
         header,
         flag_line,
-        _defang(m(c.summary)),
+        m(c.summary),
         "",
-        f"Por qué: {_defang(m(c.rationale))}",
+        f"Por qué: {m(c.rationale)}",
         "",
         "Evidencia (context):",
         f"· IP vista antes (30d): {_yn(c.src_ip_seen_before)}   · eventos 24h: {c.related_events_24h}",
@@ -77,6 +80,9 @@ def _system_lines(n: SystemNotification, count: int) -> list[str]:
     if n.kind == "enrichment_degraded":
         header = f"⚑ enrichment degraded · sensor {n.sensor} · severity {n.severity.upper()}"
         body = "OpenSearch lookup failed — zeroed context enviado al modelo (in-distribution)."
+    elif n.kind == "age_suppressed":
+        header = f"⏳ age-suppressed · sensor {n.sensor} · severity {n.severity.upper()}"
+        body = "Events older than notify_max_event_age were suppressed — still queryable in OpenSearch (ADR-0004 D-16)."
     else:
         header = f"⚠️ unclassified (system) · {n.reason} · sensor {n.sensor} · severity {n.severity.upper()}"
         detail_line = f"detail: {n.detail}" if n.detail else ""

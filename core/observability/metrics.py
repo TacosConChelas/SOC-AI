@@ -19,6 +19,7 @@ _LABEL_ALLOWLIST: dict[str, frozenset[str]] = {
     "soc_collector_quarantined_total": frozenset(),
     "soc_classify_total": frozenset({"outcome"}),
     "soc_notify_total": frozenset({"decision"}),
+    "soc_notify_age_suppressed_total": frozenset({"source_module"}),
     "soc_group_total": frozenset({"action"}),
     "soc_bus_acl_rejections_total": frozenset(),
     "soc_bus_xadd_duration_seconds": frozenset(),
@@ -61,6 +62,11 @@ NOTIFY_TOTAL: Counter = Counter(
     "soc_notify_total",
     "Notify node decisions",
     ["decision"],  # "notified" | "suppressed"
+)
+NOTIFY_AGE_SUPPRESSED: Counter = Counter(
+    "soc_notify_age_suppressed_total",
+    "Events suppressed by the notify age cutoff (ADR-0004 Enmienda 2026-08, D-16/D-20)",
+    ["source_module"],
 )
 GROUP_TOTAL: Counter = Counter(
     "soc_group_total",

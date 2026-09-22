@@ -1,7 +1,7 @@
 """Tests for the classify node — Ollama client + retry logic."""
 
 from datetime import UTC, datetime
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -98,12 +98,16 @@ def test_classify_retries_exactly_twice_on_parse_failure() -> None:
 
 
 def test_classify_no_feedback_between_retries() -> None:
-    """The same prompt is sent on every retry — no error fed back to the model."""
+    """The same prompt is sent on every retry — no error fed back to the model.
+
+    Temperature legitimately differs between attempts (see below), so only the
+    system/user message args are compared here, not the full call (kwargs included).
+    """
     client = _fake_ollama(_INVALID_JSON)
     classify_event(_event(), _context(), client)
     calls = client.chat.call_args_list
     assert len(calls) == 2
-    assert calls[0] == calls[1], "Retry must send identical prompt, no error feedback"
+    assert calls[0].args == calls[1].args, "Retry must send identical prompt, no error feedback"
 
 
 def test_classify_fenced_json_treated_as_parse_failure() -> None:
@@ -145,3 +149,43 @@ def test_classify_succeeds_on_second_attempt() -> None:
     assert outcome.model_output is not None
     assert outcome.dead_letter is None
     assert client.chat.call_count == 2
+
+
+# ---------------------------------------------------------------------------
+# Retry temperature (decisions.md task 25)
+# ---------------------------------------------------------------------------
+
+
+def test_first_attempt_uses_temperature_0_1() -> None:
+    client = _fake_ollama(_VALID_JSON)
+    classify_event(_event(), _context(), client)
+    assert client.chat.call_args_list[0].kwargs["temperature"] == 0.1
+
+
+def test_retry_uses_temperature_0_2() -> None:
+    """A deterministic resend at the same temperature can't change the result."""
+    client = _fake_ollama(_INVALID_JSON)
+    classify_event(_event(), _context(), client)
+    assert client.chat.call_args_list[1].kwargs["temperature"] == 0.2
+
+
+# ---------------------------------------------------------------------------
+# Ollama payload — format: json (decisions.md task 25)
+# ---------------------------------------------------------------------------
+
+
+def test_ollama_client_chat_requests_json_format() -> None:
+    """OllamaClient.chat must set format: json — never a stricter grammar mask
+    (that would hide model degradation ADR-0004 §2 wants visible)."""
+    captured: dict = {}
+
+    def fake_post(url: str, json: dict, timeout: float) -> MagicMock:
+        captured.update(json)
+        response = MagicMock()
+        response.json.return_value = {"message": {"content": _VALID_JSON}}
+        return response
+
+    with patch("core.orchestrator.nodes.classify.httpx.post", side_effect=fake_post):
+        OllamaClient(base_url="http://mock").chat("sys", "usr")
+
+    assert captured["format"] == "json"

@@ -75,3 +75,28 @@ def test_telegram_degradation_shows_context_degraded() -> None:
 def test_slack_degradation_shows_context_degraded() -> None:
     text = str(render_slack_system(_degradation())["text"])
     assert "enrichment degraded" in text.lower()
+
+
+# --- age-suppressed render (ADR-0004 Enmienda 2026-08, D-16) ---
+
+
+def _age_suppressed() -> SystemNotification:
+    return SystemNotification(
+        kind="age_suppressed",
+        sensor="edge-01",
+        severity="high",
+        reason="age_suppressed",
+        retry_count=None,
+        detail=None,
+    )
+
+
+def test_telegram_age_suppressed_shows_sensor_and_count() -> None:
+    text = render_telegram_system(_age_suppressed(), count=161)
+    assert "edge-01" in text
+    assert "×161" in text
+
+
+def test_slack_age_suppressed_mentions_age_cutoff() -> None:
+    text = str(render_slack_system(_age_suppressed())["text"])
+    assert "age" in text.lower()

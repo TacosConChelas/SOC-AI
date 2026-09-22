@@ -1,7 +1,6 @@
 """Group node — session-based incident grouping backed by Redis."""
 
 import hashlib
-import uuid
 from dataclasses import dataclass
 
 import redis
@@ -45,8 +44,17 @@ class SessionStore:
         existing: dict[str, str] = self._r.hgetall(key)  # type: ignore[assignment]
 
         if not existing:
-            group_key = str(uuid.uuid4())
-            self._r.hset(key, mapping={"group_key": group_key, "opening_cls": classification, "notified": "0"})
+            first_seen_unix = int(event.timestamp.timestamp())
+            group_key = self._incident_group_key(sig, first_seen_unix)
+            self._r.hset(
+                key,
+                mapping={
+                    "group_key": group_key,
+                    "opening_cls": classification,
+                    "notified": "0",
+                    "first_seen_unix": str(first_seen_unix),
+                },
+            )
             self._r.expire(key, self._ttl)
             GROUP_TOTAL.labels(action="new_session").inc()
             return SessionState(
@@ -69,6 +77,15 @@ class SessionStore:
             session_was_notified=was_notified,
             session_key=key,
         )
+
+    @staticmethod
+    def _incident_group_key(signature: str, first_seen_unix: int) -> str:
+        """ADR-0002 task 26: sha1(signature|first_seen_unix) — deterministic, not random.
+
+        Same signature + first_seen must always yield the same key, independent of
+        which process or Redis instance computes it.
+        """
+        return hashlib.sha1(f"{signature}|{first_seen_unix}".encode()).hexdigest()
 
     def mark_notified(self, session_key: str) -> None:
         """Set the notified flag for a session. Called after a notification is sent."""

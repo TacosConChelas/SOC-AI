@@ -38,3 +38,15 @@ def project_degradation(event: UnifiedEvent) -> SystemNotification:
         retry_count=None,
         detail=None,
     )
+
+
+def project_age_suppressed(event: UnifiedEvent) -> SystemNotification:
+    """ADR-0004 Enmienda 2026-08 (D-16): fail-loud, coalesced notice for age-suppressed events."""
+    return SystemNotification(
+        kind="age_suppressed",
+        sensor=event.sensor,
+        severity=event.severity_hint,
+        reason="age_suppressed",
+        retry_count=None,
+        detail=None,
+    )

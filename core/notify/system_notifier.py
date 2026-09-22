@@ -8,7 +8,7 @@ import time
 from core.contracts.deadletter import DeadLetterRecord
 from core.contracts.event import UnifiedEvent
 from core.notify.clients import MultiNotifier, SlackNotifier, TelegramNotifier
-from core.notify.system import project_dead_letter, project_degradation
+from core.notify.system import project_age_suppressed, project_dead_letter, project_degradation
 
 
 class CoalescingBuffer:
@@ -55,6 +55,9 @@ class SystemNotifier:
     def __init__(self, multi: MultiNotifier, *, window_s: float = 60.0) -> None:
         self._multi = multi
         self._buf = CoalescingBuffer(window_s)
+        # Dedicated buffer (ADR-0004 Enmienda 2026-08): a CloudTrail backlog can suppress
+        # thousands of events by age alone, independent of dead-letter/degradation traffic.
+        self._age_buf = CoalescingBuffer(window_s)
 
     def notify_dead_letter(self, record: DeadLetterRecord, *, now: float | None = None) -> None:
         notif = project_dead_letter(record)
@@ -67,6 +70,13 @@ class SystemNotifier:
         notif = project_degradation(event)
         key = ("enrichment_degraded", event.sensor)
         count = self._buf.push(key, now=now)
+        if count is not None:
+            self._multi.send_system(notif, count=count)
+
+    def notify_age_suppressed(self, event: UnifiedEvent, *, now: float | None = None) -> None:
+        notif = project_age_suppressed(event)
+        key = ("age_suppressed", event.sensor)
+        count = self._age_buf.push(key, now=now)
         if count is not None:
             self._multi.send_system(notif, count=count)
 

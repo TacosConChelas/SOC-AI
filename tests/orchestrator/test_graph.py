@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from typing import Any
 from unittest.mock import MagicMock
 
 import fakeredis
+import pytest
 
 from core.bus.config import BusConfig
 from core.bus.streams import RedisBus
@@ -28,12 +30,32 @@ _OS_RESPONSE = {
     "aggregations": {"distinct_rules": {"value": 2}},
 }
 
+# Fixed event_timestamp / "now" pair for the notify age cutoff (level 0): the event
+# fires at 12:00Z, the frozen clock below reads 12:30Z — 30 minutes apart, well inside
+# the default 2h window — so these fixtures never depend on the wall clock.
+_EVENT_TS = datetime(2026, 7, 20, 12, 0, 0, tzinfo=UTC)
+_NOW_TS = datetime(2026, 7, 20, 12, 30, 0, tzinfo=UTC)
+
+
+class _FrozenDatetime(datetime):
+    @classmethod
+    def now(cls, tz: Any = None) -> "_FrozenDatetime":  # noqa: ANN401 - matches datetime.now's signature
+        return cls.fromtimestamp(_NOW_TS.timestamp(), tz=UTC)
+
+
+@pytest.fixture(autouse=True)
+def _frozen_notify_clock(monkeypatch: pytest.MonkeyPatch) -> None:
+    """graph.py's _notify doesn't inject 'now' into notify_decision, so it always reads
+    the wall clock. Freeze it to a fixed instant so the age cutoff (level 0) evaluates
+    deterministically against the literal event_timestamp in _event()."""
+    monkeypatch.setattr("core.orchestrator.nodes.notify.datetime", _FrozenDatetime)
+
 
 def _event(severity_hint: str = "high") -> UnifiedEvent:
     return UnifiedEvent(
         event_id="e-001",
         schema_version="unified-event@1",
-        timestamp=datetime(2026, 7, 20, 12, 0, 0, tzinfo=UTC),
+        timestamp=_EVENT_TS,
         source_module="wazuh",
         sensor="edge-01",
         source_alert_id="wz-1",
@@ -218,3 +240,21 @@ def test_dead_letter_fires_system_notifier() -> None:
     deps = _make_deps(llm_response="not valid json")
     TriageGraph(deps).run(_event())
     deps.system_notifier.notify_dead_letter.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# Age cutoff (ADR-0004 Enmienda 2026-08, D-16/D-20)
+# ---------------------------------------------------------------------------
+
+
+def test_old_event_suppressed_and_fires_age_system_notifier() -> None:
+    """A backlogged event past notify_max_event_age never reaches the notifier, but
+    the suppression is loud via the dedicated system notification."""
+    deps = _make_deps()
+    old_event = _event()
+    old_event = old_event.model_copy(update={"timestamp": datetime(2020, 1, 1, tzinfo=UTC)})
+    state = TriageGraph(deps).run(old_event)
+    assert state["notify_decision"] is not None
+    assert state["notify_decision"].reason == "age_suppressed"
+    deps.notifier.send.assert_not_called()
+    deps.system_notifier.notify_age_suppressed.assert_called_once()

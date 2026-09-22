@@ -18,7 +18,7 @@ from core.contracts.triage import (
     TriageRecord,
 )
 from core.notify.content import NotificationContent, project_notification
-from core.observability.metrics import DEADLETTER_TOTAL, NOTIFY_TOTAL
+from core.observability.metrics import DEADLETTER_TOTAL, NOTIFY_AGE_SUPPRESSED, NOTIFY_TOTAL
 from core.orchestrator.nodes.classify import ClassifyOutcome, OllamaClient, classify_event
 from core.orchestrator.nodes.enrich import enrich_event
 from core.orchestrator.nodes.group import SessionState, SessionStore
@@ -33,6 +33,7 @@ class Notifier(Protocol):
 class SystemNotifierProto(Protocol):
     def notify_dead_letter(self, record: DeadLetterRecord) -> None: ...
     def notify_degradation(self, event: UnifiedEvent) -> None: ...
+    def notify_age_suppressed(self, event: UnifiedEvent) -> None: ...
 
 
 class TriageState(TypedDict):
@@ -128,11 +129,15 @@ class TriageGraph:
     def _notify(self, state: TriageState) -> dict[str, Any]:
         assert state["triage_record"] is not None
         assert state["session_state"] is not None
-        decision = notify_decision(state["triage_record"], state["session_state"])
+        event = state["event"]
+        decision = notify_decision(state["triage_record"], state["session_state"], event_timestamp=event.timestamp)
         if decision.should_notify:
-            content = project_notification(state["triage_record"], state["event"], decision)
+            content = project_notification(state["triage_record"], event, decision)
             self._d.notifier.send(content)
             self._d.session_store.mark_notified(state["session_state"].session_key)
+        elif decision.reason == "age_suppressed":
+            NOTIFY_AGE_SUPPRESSED.labels(source_module=event.source_module).inc()
+            self._d.system_notifier.notify_age_suppressed(event)
         NOTIFY_TOTAL.labels(decision="notified" if decision.should_notify else "suppressed").inc()
         return {"notify_decision": decision}
 

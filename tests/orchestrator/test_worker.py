@@ -9,7 +9,7 @@ from unittest.mock import MagicMock
 import fakeredis
 
 from core.bus.config import BusConfig
-from core.bus.streams import RedisBus
+from core.bus.streams import BusError, RedisBus
 from core.contracts.event import UnifiedEvent
 from core.orchestrator.nodes.classify import OllamaUnavailableError
 from core.orchestrator.worker import Worker
@@ -236,6 +236,61 @@ def test_run_once_dead_letter_from_parse_failure_still_acks() -> None:
     Worker(bus=bus, graph=_mock_graph(dead_letter=True), consumer_name="w0").run_once()
     pending = r.xpending_range(bus._config.events_stream, bus._config.consumer_group, "-", "+", 10)
     assert pending == []
+
+
+# ---------------------------------------------------------------------------
+# BusError — run() backs off instead of crashing (decisions.md tasks 21 & 42)
+# ---------------------------------------------------------------------------
+
+
+def test_run_bus_error_does_not_crash_and_backs_off(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    bus = MagicMock()
+    bus.claim_stale.return_value = []
+    stop = threading.Event()
+    calls = {"n": 0}
+
+    def flaky_read_one(consumer: str) -> None:
+        calls["n"] += 1
+        if calls["n"] <= 2:
+            raise BusError("connection refused")
+        stop.set()
+        return None
+
+    bus.read_one.side_effect = flaky_read_one
+    worker = Worker(bus=bus, graph=_mock_graph(), consumer_name="w0")
+
+    sleeps: list[float] = []
+    monkeypatch.setattr("core.orchestrator.worker.time.sleep", lambda s: sleeps.append(s))
+
+    worker.run(stop=stop)  # must not raise
+
+    assert sleeps == [1.0, 2.0]
+
+
+def test_run_bus_error_backoff_resets_after_success(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    bus = MagicMock()
+    bus.claim_stale.return_value = []
+    stop = threading.Event()
+    calls = {"n": 0}
+
+    def flaky_read_one(consumer: str) -> None:
+        calls["n"] += 1
+        if calls["n"] in (1, 3):
+            raise BusError("connection refused")
+        if calls["n"] == 4:
+            stop.set()
+            return None
+        return None  # call 2 succeeds — resets backoff before call 3 fails again
+
+    bus.read_one.side_effect = flaky_read_one
+    worker = Worker(bus=bus, graph=_mock_graph(), consumer_name="w0")
+
+    sleeps: list[float] = []
+    monkeypatch.setattr("core.orchestrator.worker.time.sleep", lambda s: sleeps.append(s))
+
+    worker.run(stop=stop)
+
+    assert sleeps == [1.0, 1.0]  # not [1.0, 2.0] — reset by the success on call 2
 
 
 def test_run_processes_events_until_stopped() -> None:

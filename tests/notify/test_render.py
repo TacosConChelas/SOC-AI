@@ -10,14 +10,14 @@ def _content(**over: object) -> NotificationContent:
         severity=Severity.HIGH,
         classification=Classification.ALERT,
         confidence=0.91,
-        summary="Nmap scan from 203.0.113.5",
+        summary="Nmap scan detected from a repeat scanner",
         rationale="Repeated NSE <activity>",
         src_ip_seen_before=True,
         related_events_24h=47,
         distinct_rules_from_src_24h=1,
         events_last_10min=5,
         src_in_allowlist=False,
-        suggested_actions=("Block 203.0.113.5 at the edge",),
+        suggested_actions=("Block the source at the edge",),
         matched_rule="2024358",
         src_ip="203.0.113.5",
         dst_ip="10.0.0.1",
@@ -45,7 +45,7 @@ def test_telegram_includes_emoji_and_evidence_and_actions() -> None:
     text = render_telegram(_content())
     assert "🟠" in text  # high
     assert "47" in text  # related_events_24h
-    assert "Block 203[.]0[.]113[.]5 at the edge" in text  # action, defanged
+    assert "Block the source at the edge" in text
 
 
 def test_slack_escapes_model_text_angle_brackets() -> None:
@@ -65,3 +65,15 @@ def test_slack_defangs_ips() -> None:
 def test_context_degraded_flag_rendered() -> None:
     text = render_telegram(_content(flags=("severity_floor", "context_degraded")))
     assert "context degraded" in text.lower()
+
+
+def test_summary_free_text_not_defanged() -> None:
+    """_defang must be scoped to structured IP/URL fields, never free model text
+    (ADR-0004 §4) — 'in 10 min.' must not become 'in 10 min[.]'."""
+    text = render_telegram(_content(summary="Scan completed in 10 min. No lateral movement."))
+    assert "10 min. No lateral movement." in text
+
+
+def test_rationale_free_text_not_defanged() -> None:
+    text = render_telegram(_content(rationale="Seen 3 times in the last 24h. Escalating."))
+    assert "24h. Escalating." in text

@@ -43,15 +43,21 @@ class OllamaClient:
         self._model = model
         self._timeout = timeout
 
-    def chat(self, system: str, user: str) -> str:
-        """Send a chat request; return raw text content. Raises OllamaUnavailableError on network failure."""
+    def chat(self, system: str, user: str, temperature: float = 0.1) -> str:
+        """Send a chat request; return raw text content. Raises OllamaUnavailableError on network failure.
+
+        format: "json" guarantees syntactic JSON without masking which fields the model gets
+        wrong — a stricter grammar mask was rejected (decisions.md task 25) because it would
+        hide model degradation that ADR-0004 §2 wants visible via the parse_failure path.
+        """
         payload = {
             "model": self._model,
             "messages": [
                 {"role": "system", "content": system},
                 {"role": "user", "content": user},
             ],
-            "options": {"temperature": 0.1},
+            "format": "json",
+            "options": {"temperature": temperature},
             "stream": False,
         }
         try:
@@ -90,8 +96,11 @@ def classify_event(
     raw: str | None = None
     error_types: list[str] = []
 
-    for _attempt in range(_MAX_RETRIES):
-        raw = ollama_client.chat(system_prompt, user_msg)
+    for attempt in range(_MAX_RETRIES):
+        # First attempt at 0.1; retries at 0.2 — a deterministic resend at the same
+        # temperature can't change the result (decisions.md task 25).
+        temperature = 0.1 if attempt == 0 else 0.2
+        raw = ollama_client.chat(system_prompt, user_msg, temperature=temperature)
 
         try:
             output = TriageModelOutput.model_validate_json(raw)

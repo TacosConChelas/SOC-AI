@@ -1,12 +1,14 @@
 """Unit tests for RedisBus — fakeredis[lua], no live Redis required."""
 
 from datetime import UTC, datetime
+from unittest.mock import MagicMock
 
 import fakeredis
 import pytest
+import redis as redis_lib
 
 from core.bus.config import BusConfig
-from core.bus.streams import PendingEvent, RedisBus
+from core.bus.streams import BusError, PendingEvent, RedisBus
 from core.contracts.deadletter import DeadLetterReason, DeadLetterRecord
 from core.contracts.event import UnifiedEvent
 
@@ -192,3 +194,34 @@ def test_claim_stale_empty_when_all_acked(bus: RedisBus, event: UnifiedEvent) ->
     bus.ack(pending.msg_id)
     stale = bus.claim_stale(consumer="worker-2", min_idle_ms=0)
     assert stale == []
+
+
+# ---------------------------------------------------------------------------
+# BusError — connection failures translated, never retried internally
+# ---------------------------------------------------------------------------
+
+
+def test_connection_error_translated_to_bus_error(cfg: BusConfig, event: UnifiedEvent) -> None:
+    broken_client = MagicMock()
+    broken_client.xadd.side_effect = redis_lib.ConnectionError("connection refused")
+    bus = RedisBus(client=broken_client, config=cfg)
+    with pytest.raises(BusError):
+        bus.publish_event(event)
+
+
+def test_timeout_error_translated_to_bus_error(cfg: BusConfig) -> None:
+    broken_client = MagicMock()
+    broken_client.xreadgroup.side_effect = redis_lib.TimeoutError("timed out")
+    bus = RedisBus(client=broken_client, config=cfg)
+    with pytest.raises(BusError):
+        bus.read_one(consumer="worker-1")
+
+
+def test_bus_error_does_not_retry_internally(cfg: BusConfig, event: UnifiedEvent) -> None:
+    """Fail-loud: exactly one underlying call, no internal retry (decisions.md task 21)."""
+    broken_client = MagicMock()
+    broken_client.xadd.side_effect = redis_lib.ConnectionError("connection refused")
+    bus = RedisBus(client=broken_client, config=cfg)
+    with pytest.raises(BusError):
+        bus.publish_event(event)
+    assert broken_client.xadd.call_count == 1

@@ -143,13 +143,51 @@ def test_no_escalation_downgrade(store: SessionStore) -> None:
 # ---------------------------------------------------------------------------
 
 
+def test_group_key_deterministic_across_independent_sessions() -> None:
+    """Same signature + first_seen must yield the same key even from two unrelated
+    SessionStores (ADR-0002 task 26: sha1(signature|first_seen_unix), not a random uuid)."""
+    store_a = SessionStore(client=fakeredis.FakeRedis(decode_responses=True), gap_seconds=300)
+    store_b = SessionStore(client=fakeredis.FakeRedis(decode_responses=True), gap_seconds=300)
+    a = store_a.fold(_event(), Classification.ALERT, Severity.HIGH)
+    b = store_b.fold(_event(), Classification.ALERT, Severity.HIGH)
+    assert a.incident_group_key == b.incident_group_key
+
+
+def test_group_key_differs_for_different_first_seen(store: SessionStore) -> None:
+    """Same signature but a different first_seen timestamp must produce a different key."""
+    earlier = UnifiedEvent(
+        event_id="e-002",
+        schema_version="unified-event@1",
+        timestamp=datetime(2026, 7, 20, 11, 0, 0, tzinfo=UTC),
+        source_module="wazuh",
+        sensor="h1",
+        source_alert_id="wz-2",
+        event_type="NIDS",
+        severity_hint="medium",
+        summary="Test",
+        raw_ref="opensearch://soc-alerts/wz-2",
+        src_ip="203.0.113.5",
+        rule_id="1002",
+    )
+    a = store.fold(_event(), Classification.ALERT, Severity.HIGH)
+    other_store = SessionStore(client=fakeredis.FakeRedis(decode_responses=True), gap_seconds=300)
+    b = other_store.fold(earlier, Classification.ALERT, Severity.HIGH)
+    assert a.incident_group_key != b.incident_group_key
+
+
 def test_expired_session_opens_new_session(store: SessionStore) -> None:
-    """Session with gap_seconds=1 expires; next alert opens a new session."""
+    """Session with gap_seconds=1 expires; next alert opens a new session.
+
+    The second alert carries a later timestamp than the first — a real second incident's
+    opening event necessarily arrives after the gap elapses. Same signature, different
+    first_seen, so the deterministic key (task 26) correctly differs.
+    """
     fast_store = SessionStore(client=fakeredis.FakeRedis(decode_responses=True), gap_seconds=1)
     first = fast_store.fold(_event(), Classification.ALERT, Severity.HIGH)
     import time
 
     time.sleep(1.1)
-    second = fast_store.fold(_event(), Classification.ALERT, Severity.HIGH)
+    later_event = _event().model_copy(update={"timestamp": datetime(2026, 7, 20, 12, 5, 0, tzinfo=UTC)})
+    second = fast_store.fold(later_event, Classification.ALERT, Severity.HIGH)
     assert second.is_new_session is True
     assert second.incident_group_key != first.incident_group_key

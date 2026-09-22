@@ -181,6 +181,25 @@ def test_system_notifier_degradation_fires() -> None:
     assert "enrichment degraded" in seen[0].content.decode().lower()
 
 
+def test_system_notifier_age_suppressed_fires() -> None:
+    seen, client = _capture()
+    multi = MultiNotifier([SlackNotifier("tok", "#sys", api_url="https://mock/s", client=client)])
+    sn = SystemNotifier(multi, window_s=60.0)
+    sn.notify_age_suppressed(_event(), now=0.0)
+    assert len(seen) == 1
+
+
+def test_system_notifier_age_suppressed_uses_dedicated_buffer() -> None:
+    """The age-suppressed buffer is independent — it must not share a coalescing
+    window with dead-letter/degradation traffic on the same sensor."""
+    seen, client = _capture()
+    multi = MultiNotifier([SlackNotifier("tok", "#sys", api_url="https://mock/s", client=client)])
+    sn = SystemNotifier(multi, window_s=60.0)
+    sn.notify_dead_letter(_dead_letter_record(), now=0.0)  # opens the dead-letter buffer window
+    sn.notify_age_suppressed(_event(), now=1.0)  # must still fire — separate buffer
+    assert len(seen) == 2
+
+
 def test_from_env_builds_system_notifier(monkeypatch) -> None:  # type: ignore[no-untyped-def]
     monkeypatch.setenv("SLACK_BOT_TOKEN", "tok")
     monkeypatch.setenv("SLACK_SYSTEM_CHANNEL", "#soc-system")
