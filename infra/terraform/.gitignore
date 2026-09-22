@@ -1,0 +1,16 @@
+# Terraform state and lock files (should never be committed)
+*.tfstate
+*.tfstate.*
+crash.log
+
+# Terraform working directory (generated on init)
+.terraform/
+
+# Override files (local overrides should not be committed)
+override.tf*
+
+# Local variable files (may contain sensitive data like owner's IP)
+*.tfvars
+
+# NOTE: .terraform.lock.hcl is deliberately NOT ignored — it pins provider versions
+# and must be committed to ensure reproducible deployments across machines.

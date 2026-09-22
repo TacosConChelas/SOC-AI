@@ -1,0 +1,7 @@
+# Example terraform.tfvars — copy to terraform.tfvars and fill in your values.
+# This file is gitignored to prevent accidentally committing sensitive data.
+
+# aws_region = "us-east-2"
+
+# Placeholder for future domain variables (networking, compute, storage, etc.)
+# Each will be added as its domain is implemented.
