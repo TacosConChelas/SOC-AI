@@ -63,3 +63,28 @@ variable "instance_type" {
   type        = string
   default     = "g6.2xlarge"
 }
+
+# --- observability.tf ---
+
+variable "alert_email" {
+  description = "SNS destination for Plane 3 alarms - what happens TO the SOC (instance dead, disk full, GPU saturated, forgot-to-stop)"
+  type        = string
+}
+
+variable "notify_schedule" {
+  description = "EventBridge Scheduler cron/rate expression for the 'instance still running' reminder. Also drives the auto-stop schedule when enable_auto_stop is true."
+  type        = string
+  default     = "cron(0 4 * * ? *)" # 04:00 UTC nightly
+}
+
+variable "enable_auto_stop" {
+  description = "Dormant hard cost cap: when true, an EventBridge Scheduler stops the instance at notify_schedule instead of only notifying. Owner's default: notify-only."
+  type        = bool
+  default     = false
+}
+
+variable "log_retention_days" {
+  description = "CloudWatch Logs retention for /soc-ai/* log groups (cost control)"
+  type        = number
+  default     = 14
+}
