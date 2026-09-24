@@ -1,6 +1,11 @@
 # Claude Code configuration
 .claude/
 
+# Other agent-platform configs (Codebuff, OpenCode, shared AGENTS.md skills doc)
+.agents/
+.opencode/
+AGENTS.md
+
 # Knowledge base (local only)
 .Knowledge/
 
