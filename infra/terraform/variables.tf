@@ -55,3 +55,11 @@ variable "snapshot_retention_count" {
   type        = number
   default     = 7
 }
+
+# --- compute.tf ---
+
+variable "instance_type" {
+  description = "EC2 instance type (ADR-0007: g6.2xlarge - 1x NVIDIA L4 24GB, 8 vCPU, 32GB RAM)"
+  type        = string
+  default     = "g6.2xlarge"
+}
