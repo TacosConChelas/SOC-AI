@@ -88,3 +88,11 @@ variable "log_retention_days" {
   type        = number
   default     = 14
 }
+
+# --- cloudtrail.tf ---
+
+variable "cloudtrail_retention_days" {
+  description = "S3 lifecycle expiration for the CloudTrail log bucket (cost control)"
+  type        = number
+  default     = 90
+}
