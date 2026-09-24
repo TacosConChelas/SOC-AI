@@ -41,3 +41,17 @@ variable "wazuh_agent_source_ip" {
   type        = string
   default     = ""
 }
+
+# --- storage.tf ---
+
+variable "data_volume_size_gb" {
+  description = "Size of the data EBS volume (the pet) in GiB. Grow later, never shrink."
+  type        = number
+  default     = 100
+}
+
+variable "snapshot_retention_count" {
+  description = "How many DLM snapshots of the data volume to retain"
+  type        = number
+  default     = 7
+}

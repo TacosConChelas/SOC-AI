@@ -4,6 +4,10 @@
 # only planned exceptions, gated behind their own toggles (D-37) and scoped to the
 # owner's IP, never 0.0.0.0/0.
 
+data "aws_availability_zones" "available" {
+  state = "available"
+}
+
 resource "aws_vpc" "main" {
   cidr_block           = var.vpc_cidr
   enable_dns_support   = true
@@ -14,9 +18,12 @@ resource "aws_vpc" "main" {
   }
 }
 
+# Pinned (not left to auto-assignment): the data EBS volume (storage.tf) and the
+# instance (compute.tf) must land in the same AZ as this subnet to attach.
 resource "aws_subnet" "public" {
   vpc_id                  = aws_vpc.main.id
   cidr_block              = var.public_subnet_cidr
+  availability_zone       = data.aws_availability_zones.available.names[0]
   map_public_ip_on_launch = true
 
   tags = {
