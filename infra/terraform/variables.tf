@@ -9,3 +9,35 @@ variable "aws_region" {
   type        = string
   default     = "us-east-2"
 }
+
+# --- network.tf ---
+
+variable "vpc_cidr" {
+  description = "CIDR block for the SOC-AI VPC (minimal: single public subnet, no NAT)"
+  type        = string
+  default     = "10.0.0.0/16"
+}
+
+variable "public_subnet_cidr" {
+  description = "CIDR block for the single public subnet"
+  type        = string
+  default     = "10.0.1.0/24"
+}
+
+variable "enable_wazuh_agent_ingress" {
+  description = "D-37: opens 1514/tcp (Wazuh agent session) to wazuh_agent_source_ip. Never 0.0.0.0/0."
+  type        = bool
+  default     = false
+}
+
+variable "enable_wazuh_enrollment_ingress" {
+  description = "D-37: opens 1515/tcp (Wazuh agent enrollment) to wazuh_agent_source_ip. Enable only during a host's enrollment window, then close it."
+  type        = bool
+  default     = false
+}
+
+variable "wazuh_agent_source_ip" {
+  description = "Owner's current public lab IP (no CIDR suffix). Refreshed per session. Required only when either Wazuh ingress toggle is true."
+  type        = string
+  default     = ""
+}
