@@ -39,7 +39,7 @@ resource "aws_instance" "main" {
 
   root_block_device {
     volume_type = "gp3"
-    volume_size = 30
+    volume_size = 80 # DLAMI's root snapshot requires >= 75GB
     encrypted   = true
     kms_key_id  = aws_kms_key.project.arn
   }

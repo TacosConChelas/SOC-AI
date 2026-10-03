@@ -182,7 +182,10 @@ resource "aws_scheduler_schedule" "notify_still_running" {
   }
 }
 
-# --- Auto-stop: implemented but dormant (enable_auto_stop = false by design) ---
+# --- Auto-stop: live since 2026-09-24 (enable_auto_stop now defaults to true) ---
+# Was dormant by owner preference (notify-only). Flipped after AWS denied the
+# G/VT vCPU quota twice citing "sudden, unexpected spikes" - see new-cuota.md.
+# A deployed hard cap is evidence for the appeal; a dormant one is a promise.
 
 resource "aws_iam_role" "scheduler_auto_stop" {
   count = var.enable_auto_stop ? 1 : 0
@@ -226,5 +229,35 @@ resource "aws_scheduler_schedule" "auto_stop" {
     input = jsonencode({
       InstanceIds = [aws_instance.main.id]
     })
+  }
+}
+
+# --- Budget: account-wide monthly ceiling (cost control, not Plane 3) ---
+# Subscribes alert_email directly rather than the SNS topic: Budgets needs an
+# extra topic policy to publish to SNS, and this alert has no consumer other
+# than the owner's inbox. Two thresholds only - 80% of what has already been
+# spent, and a forecast that the month will close over budget.
+
+resource "aws_budgets_budget" "monthly" {
+  name         = "soc-ai-monthly"
+  budget_type  = "COST"
+  limit_amount = tostring(var.monthly_budget_usd)
+  limit_unit   = "USD"
+  time_unit    = "MONTHLY"
+
+  notification {
+    comparison_operator        = "GREATER_THAN"
+    threshold                  = 80
+    threshold_type             = "PERCENTAGE"
+    notification_type          = "ACTUAL"
+    subscriber_email_addresses = [var.alert_email]
+  }
+
+  notification {
+    comparison_operator        = "GREATER_THAN"
+    threshold                  = 100
+    threshold_type             = "PERCENTAGE"
+    notification_type          = "FORECASTED"
+    subscriber_email_addresses = [var.alert_email]
   }
 }

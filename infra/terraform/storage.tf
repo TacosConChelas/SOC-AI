@@ -4,9 +4,58 @@
 # Grants permissions on resources created here to identities from iam.tf,
 # since attaching them there would have been a forward reference.
 
+# CloudTrail needs an explicit grant in the key policy - a key with no policy
+# falls back to the default (root-only) policy, which CloudTrail's service
+# principal isn't part of, so CreateTrail fails with InsufficientEncryptionPolicyException.
+data "aws_iam_policy_document" "kms_key_policy" {
+  statement {
+    sid       = "EnableIAMUserPermissions"
+    effect    = "Allow"
+    actions   = ["kms:*"]
+    resources = ["*"]
+
+    principals {
+      type        = "AWS"
+      identifiers = ["arn:${data.aws_partition.current.partition}:iam::${data.aws_caller_identity.current.account_id}:root"]
+    }
+  }
+
+  statement {
+    sid     = "AllowCloudTrailEncrypt"
+    effect  = "Allow"
+    actions = ["kms:GenerateDataKey*"]
+
+    resources = ["*"]
+
+    principals {
+      type        = "Service"
+      identifiers = ["cloudtrail.amazonaws.com"]
+    }
+
+    condition {
+      test     = "StringLike"
+      variable = "kms:EncryptionContext:aws:cloudtrail:arn"
+      values   = ["arn:${data.aws_partition.current.partition}:cloudtrail:*:${data.aws_caller_identity.current.account_id}:trail/*"]
+    }
+  }
+
+  statement {
+    sid       = "AllowCloudTrailDescribe"
+    effect    = "Allow"
+    actions   = ["kms:DescribeKey"]
+    resources = ["*"]
+
+    principals {
+      type        = "Service"
+      identifiers = ["cloudtrail.amazonaws.com"]
+    }
+  }
+}
+
 resource "aws_kms_key" "project" {
   description         = "SOC-AI project key (Ring 4): EBS data volume, snapshots, S3 buckets, Parameter Store"
   enable_key_rotation = true
+  policy              = data.aws_iam_policy_document.kms_key_policy.json
 
   tags = {
     Name = "soc-ai-kms"

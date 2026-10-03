@@ -59,9 +59,9 @@ variable "snapshot_retention_count" {
 # --- compute.tf ---
 
 variable "instance_type" {
-  description = "EC2 instance type (ADR-0007: g6.2xlarge - 1x NVIDIA L4 24GB, 8 vCPU, 32GB RAM)"
+  description = "EC2 instance type. Was g6.2xlarge (ADR-0007: 1x L4 24GB, 8 vCPU, 32GB RAM); lowered to g6.xlarge on 2026-09-24 (see new-cuota.md) - same L4 and same 24GB VRAM, but 4 vCPU / 16GB RAM, halving the G/VT quota ask AWS denied twice. Raise back to g6.2xlarge if benchmarks show 16GB system RAM starves the stack (ADR-0007 §1: RAM, not VRAM, is the contended resource)."
   type        = string
-  default     = "g6.2xlarge"
+  default     = "g6.xlarge"
 }
 
 # --- observability.tf ---
@@ -78,9 +78,15 @@ variable "notify_schedule" {
 }
 
 variable "enable_auto_stop" {
-  description = "Dormant hard cost cap: when true, an EventBridge Scheduler stops the instance at notify_schedule instead of only notifying. Owner's default: notify-only."
+  description = "Hard cost cap: an EventBridge Scheduler stops the instance at notify_schedule instead of only notifying. Default flipped to true on 2026-09-24 (see new-cuota.md): AWS denied the G/VT vCPU quota twice citing unexpected-spike risk, so the cap is now deployed rather than dormant."
   type        = bool
-  default     = false
+  default     = true
+}
+
+variable "monthly_budget_usd" {
+  description = "AWS Budgets monthly cost ceiling for the whole account. Default 80 = headroom over ADR-0007's recalculated $42-66/mo at ~7-10 h/wk of GPU runtime. Notifies alert_email at 80% actual and 100% forecasted; it warns, it does not stop anything (enable_auto_stop is what actually stops spend)."
+  type        = number
+  default     = 80
 }
 
 variable "log_retention_days" {

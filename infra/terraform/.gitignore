@@ -3,6 +3,10 @@
 *.tfstate.*
 crash.log
 
+# Saved plan files (binary, carry account IDs and resource ARNs)
+tfplan
+*.tfplan
+
 # Terraform working directory (generated on init)
 .terraform/
 
