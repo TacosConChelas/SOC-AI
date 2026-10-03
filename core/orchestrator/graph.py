@@ -85,7 +85,7 @@ class TriageGraph:
     # --- nodes ---
 
     def _enrich(self, state: TriageState) -> dict[str, Any]:
-        ctx = enrich_event(state["event"], self._d.os_client)
+        ctx = enrich_event(state["event"], self._d.os_client, self._d.pg_conn)
         if ctx.lookup_degraded:
             self._d.system_notifier.notify_degradation(state["event"])
         return {"context": ctx}

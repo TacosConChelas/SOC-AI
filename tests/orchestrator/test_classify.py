@@ -14,6 +14,7 @@ from core.orchestrator.nodes.classify import (
     OllamaUnavailableError,
     classify_event,
 )
+from core.orchestrator.prompts import NUM_CTX
 
 _VALID_JSON = """{
   "classification": "alert",
@@ -50,6 +51,7 @@ def _context() -> TriageContext:
         distinct_rules_from_src_24h=3,
         events_last_10min=12,
         src_in_allowlist=False,
+        finding_seen_before=False,
         matched_rule="2024358",
     )
 
@@ -189,3 +191,6 @@ def test_ollama_client_chat_requests_json_format() -> None:
         OllamaClient(base_url="http://mock").chat("sys", "usr")
 
     assert captured["format"] == "json"
+    # Sent on every request so the prompt-only baseline tag gets it too (Ollama would
+    # otherwise silently drop the start of an over-long prompt: the system prompt).
+    assert captured["options"]["num_ctx"] == NUM_CTX

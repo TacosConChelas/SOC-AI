@@ -57,6 +57,7 @@ def _record(
             distinct_rules_from_src_24h=0,
             events_last_10min=0,
             src_in_allowlist=False,
+            finding_seen_before=False,
             matched_rule="1002",
         ),
         suggested_actions=["check logs"],

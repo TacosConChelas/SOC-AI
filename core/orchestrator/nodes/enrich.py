@@ -31,17 +31,33 @@ def _zeroed(event: UnifiedEvent) -> TriageContext:
         distinct_rules_from_src_24h=0,
         events_last_10min=0,
         src_in_allowlist=False,
+        finding_seen_before=False,
         matched_rule=matched_rule_of(event),
         lookup_degraded=True,
     )
 
 
-def enrich_event(event: UnifiedEvent, os_client: Any) -> TriageContext:  # noqa: C901
-    """Run 4 OpenSearch lookups and return TriageContext.
+def _finding_seen_before(event: UnifiedEvent, pg_conn: Any) -> bool:
+    """True iff this finding's source_alert_id was already triaged (ADR-0011 §4).
+
+    Only `finding` events have session-stable ids; for anything else the field is
+    always False. Excludes the event itself so a redelivered message is not its own history.
+    """
+    if event.event_type != "finding":
+        return False
+    row = pg_conn.execute(
+        "SELECT 1 FROM triage_records WHERE alert_id = %s AND event_id <> %s LIMIT 1",
+        (event.source_alert_id, event.event_id),
+    ).fetchone()
+    return row is not None
+
+
+def enrich_event(event: UnifiedEvent, os_client: Any, pg_conn: Any) -> TriageContext:  # noqa: C901
+    """Run 4 OpenSearch lookups + the finding recurrence lookup, return TriageContext.
 
     All range queries use `lt=event.timestamp` (exclusive) so the current
     alert is never counted in its own prior-history metrics.
-    On any OS failure: return zeroed context with lookup_degraded=True,
+    On any lookup failure: return zeroed context with lookup_degraded=True,
     never raise.
     """
     ts_lt = _iso(event.timestamp)
@@ -143,6 +159,7 @@ def enrich_event(event: UnifiedEvent, os_client: Any) -> TriageContext:  # noqa:
             distinct_rules_from_src_24h=cardinality,
             events_last_10min=count_10min,
             src_in_allowlist=in_allowlist,
+            finding_seen_before=_finding_seen_before(event, pg_conn),
             matched_rule=rule,
             lookup_degraded=False,
         )

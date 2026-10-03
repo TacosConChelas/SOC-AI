@@ -41,6 +41,7 @@ class TriageContext(BaseModel):
     distinct_rules_from_src_24h: int
     events_last_10min: int
     src_in_allowlist: bool
+    finding_seen_before: bool
     matched_rule: str
     lookup_degraded: bool = False
 

@@ -134,6 +134,7 @@ def normalize_raw(row: Row) -> tuple[UnifiedEvent, TriageContext]:
         distinct_rules_from_src_24h=_int(row, "ctx_distinct_rules_from_src_24h"),
         events_last_10min=_int(row, "ctx_events_last_10min"),
         src_in_allowlist=_bool(row, "ctx_src_in_allowlist"),
+        finding_seen_before=_bool(row, "ctx_finding_seen_before"),
         matched_rule=matched_rule,
         lookup_degraded=_bool(row, "ctx_lookup_degraded", default=not _has_context(row)),
     )

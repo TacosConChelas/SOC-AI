@@ -13,7 +13,7 @@ from core.contracts.deadletter import DeadLetterReason, DeadLetterRecord
 from core.contracts.event import UnifiedEvent
 from core.contracts.triage import TriageContext, TriageModelOutput
 from core.observability.metrics import CLASSIFY_TOTAL
-from core.orchestrator.prompts import build_user_message, load_system_prompt
+from core.orchestrator.prompts import NUM_CTX, build_user_message, load_system_prompt
 
 _MAX_RETRIES = 2
 _OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434")
@@ -57,7 +57,7 @@ class OllamaClient:
                 {"role": "user", "content": user},
             ],
             "format": "json",
-            "options": {"temperature": temperature},
+            "options": {"temperature": temperature, "num_ctx": NUM_CTX},
             "stream": False,
         }
         try:
@@ -88,10 +88,7 @@ def classify_event(
     dead-letter).
     """
     system_prompt = load_system_prompt()
-    user_msg = build_user_message(
-        event.model_dump_json(),
-        context.model_dump_json(),
-    )
+    user_msg = build_user_message(event, context)
 
     raw: str | None = None
     error_types: list[str] = []

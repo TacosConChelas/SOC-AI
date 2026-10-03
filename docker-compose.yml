@@ -171,6 +171,8 @@ services:
       OPENSEARCH_USER: admin
       OLLAMA_URL: http://ollama:11434
       OLLAMA_MODEL: ${OLLAMA_MODEL:-soc-ai-triage}
+      # From the model release manifest; the worker refuses to start on mismatch.
+      SOC_MODEL_PROMPT_SHA256: ${SOC_MODEL_PROMPT_SHA256:-}
       SOC_REDIS_URL: redis://redis:6379
       REDIS_USER: core-worker
       SLACK_CHANNEL: ${SLACK_CHANNEL:-#soc-alerts}

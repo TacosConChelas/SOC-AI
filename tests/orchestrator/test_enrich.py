@@ -14,6 +14,7 @@ def _event(
     rule_id: str | None = "1002",
     sensor: str = "host-01",
     ts: datetime | None = None,
+    event_type: str = "NIDS",
 ) -> UnifiedEvent:
     return UnifiedEvent(
         event_id="e-001",
@@ -22,7 +23,7 @@ def _event(
         source_module="wazuh",
         sensor=sensor,
         source_alert_id="wz-1",
-        event_type="NIDS",
+        event_type=event_type,
         severity_hint="medium",
         summary="Test alert",
         raw_ref="opensearch://soc-alerts/wz-1",
@@ -61,13 +62,54 @@ def _os_client(
     return client
 
 
+def _pg(*, seen: bool = False) -> MagicMock:
+    """Fake psycopg connection: fetchone() returns a row iff the finding was seen."""
+    conn = MagicMock()
+    conn.execute.return_value.fetchone.return_value = (1,) if seen else None
+    return conn
+
+
+# ---------------------------------------------------------------------------
+# finding_seen_before (ADR-0011 §4)
+# ---------------------------------------------------------------------------
+
+
+def test_finding_seen_before_true_when_prior_triage_exists() -> None:
+    conn = _pg(seen=True)
+    ctx = enrich_event(_event(src_ip=None, event_type="finding"), _os_client(), conn)
+    assert ctx.finding_seen_before is True
+    sql, params = conn.execute.call_args.args
+    assert "alert_id = %s" in sql and "event_id <> %s" in sql
+    assert params == ("wz-1", "e-001")
+
+
+def test_finding_seen_before_false_on_first_report() -> None:
+    ctx = enrich_event(_event(src_ip=None, event_type="finding"), _os_client(), _pg(seen=False))
+    assert ctx.finding_seen_before is False
+
+
+def test_finding_seen_before_always_false_for_non_findings() -> None:
+    conn = _pg(seen=True)
+    ctx = enrich_event(_event(), _os_client(), conn)
+    assert ctx.finding_seen_before is False
+    conn.execute.assert_not_called()
+
+
+def test_finding_lookup_failure_degrades_context() -> None:
+    conn = MagicMock()
+    conn.execute.side_effect = RuntimeError("postgres down")
+    ctx = enrich_event(_event(src_ip=None, event_type="finding"), _os_client(), conn)
+    assert ctx.lookup_degraded is True
+    assert ctx.finding_seen_before is False
+
+
 # ---------------------------------------------------------------------------
 # Network events (with src_ip)
 # ---------------------------------------------------------------------------
 
 
 def test_enrich_network_event_returns_context() -> None:
-    ctx = enrich_event(_event(), _os_client(exists=True, count_24h=47, count_10min=12, cardinality=3))
+    ctx = enrich_event(_event(), _os_client(exists=True, count_24h=47, count_10min=12, cardinality=3), _pg())
     assert isinstance(ctx, TriageContext)
     assert ctx.src_ip_seen_before is True
     assert ctx.related_events_24h == 47
@@ -80,7 +122,7 @@ def test_enrich_uses_event_timestamp_lt_exclusive() -> None:
     """Lookups must use lt=event.timestamp so the current event is excluded."""
     client = _os_client()
     ts = datetime(2026, 7, 20, 12, 0, 0, tzinfo=UTC)
-    enrich_event(_event(ts=ts), client)
+    enrich_event(_event(ts=ts), client, _pg())
     for call in client.search.call_args_list:
         body = call.kwargs.get("body", call.args[0] if call.args else {})
         query_str = str(body)
@@ -88,24 +130,24 @@ def test_enrich_uses_event_timestamp_lt_exclusive() -> None:
 
 
 def test_enrich_src_ip_not_seen_before() -> None:
-    ctx = enrich_event(_event(), _os_client(exists=False))
+    ctx = enrich_event(_event(), _os_client(exists=False), _pg())
     assert ctx.src_ip_seen_before is False
 
 
 def test_enrich_src_in_allowlist_from_env() -> None:
     with patch.dict("os.environ", {"SOC_SOURCE_ALLOWLIST": "203.0.113.5,10.0.0.1"}):
-        ctx = enrich_event(_event(src_ip="203.0.113.5"), _os_client())
+        ctx = enrich_event(_event(src_ip="203.0.113.5"), _os_client(), _pg())
     assert ctx.src_in_allowlist is True
 
 
 def test_enrich_src_not_in_allowlist() -> None:
     with patch.dict("os.environ", {"SOC_SOURCE_ALLOWLIST": "10.0.0.1"}):
-        ctx = enrich_event(_event(src_ip="203.0.113.5"), _os_client())
+        ctx = enrich_event(_event(src_ip="203.0.113.5"), _os_client(), _pg())
     assert ctx.src_in_allowlist is False
 
 
 def test_enrich_matched_rule_from_event() -> None:
-    ctx = enrich_event(_event(rule_id="5502"), _os_client())
+    ctx = enrich_event(_event(rule_id="5502"), _os_client(), _pg())
     assert ctx.matched_rule == "5502"
 
 
@@ -116,13 +158,13 @@ def test_enrich_matched_rule_from_event() -> None:
 
 def test_enrich_host_event_src_ip_seen_before_always_false() -> None:
     """Host events always have src_ip_seen_before=False regardless of OS response."""
-    ctx = enrich_event(_event(src_ip=None), _os_client(exists=True))
+    ctx = enrich_event(_event(src_ip=None), _os_client(exists=True), _pg())
     assert ctx.src_ip_seen_before is False
 
 
 def test_enrich_host_event_uses_sensor_as_key() -> None:
     client = _os_client(count_24h=3)
-    enrich_event(_event(src_ip=None, sensor="fim-host-01"), client)
+    enrich_event(_event(src_ip=None, sensor="fim-host-01"), client, _pg())
     query_str = str(client.search.call_args_list)
     assert "fim-host-01" in query_str
 
@@ -135,7 +177,7 @@ def test_enrich_host_event_uses_sensor_as_key() -> None:
 def test_enrich_os_down_returns_zeroed_context() -> None:
     bad_client = MagicMock()
     bad_client.search.side_effect = Exception("Connection refused")
-    ctx = enrich_event(_event(), bad_client)
+    ctx = enrich_event(_event(), bad_client, _pg())
     assert ctx.lookup_degraded is True
     assert ctx.src_ip_seen_before is False
     assert ctx.related_events_24h == 0
@@ -147,7 +189,7 @@ def test_enrich_os_down_returns_zeroed_context() -> None:
 def test_enrich_os_down_never_raises() -> None:
     bad_client = MagicMock()
     bad_client.search.side_effect = RuntimeError("timeout")
-    result = enrich_event(_event(), bad_client)
+    result = enrich_event(_event(), bad_client, _pg())
     assert isinstance(result, TriageContext)
 
 
@@ -157,6 +199,6 @@ def test_enrich_os_down_increments_metric() -> None:
     bad_client = MagicMock()
     bad_client.search.side_effect = Exception("OS down")
     before = ENRICHMENT_FAILURES._value.get()  # type: ignore[attr-defined]
-    enrich_event(_event(), bad_client)
+    enrich_event(_event(), bad_client, _pg())
     after = ENRICHMENT_FAILURES._value.get()  # type: ignore[attr-defined]
     assert after == before + 1

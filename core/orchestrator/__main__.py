@@ -20,6 +20,7 @@ from core.observability.metrics import start_http_server
 from core.orchestrator.graph import TriageDeps, TriageGraph
 from core.orchestrator.nodes.classify import OllamaClient
 from core.orchestrator.nodes.group import SessionStore
+from core.orchestrator.prompts import system_prompt_sha256
 from core.orchestrator.worker import Worker
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s — %(message)s")
@@ -34,7 +35,25 @@ def _require(name: str) -> str:
     return val
 
 
+def _assert_prompt_matches_model() -> None:
+    """Refuse to start if the served model was trained under a different system prompt.
+
+    SOC_MODEL_PROMPT_SHA256 comes from the model's release manifest (system_prompt_sha256).
+    A rolled-back model served with a rolled-forward prompt must fail loudly, not degrade.
+    """
+    expected = _require("SOC_MODEL_PROMPT_SHA256")
+    actual = system_prompt_sha256()
+    if expected != actual:
+        print(
+            f"FATAL: system.txt sha256 {actual} != SOC_MODEL_PROMPT_SHA256 {expected} — "
+            "the model was trained under a different prompt",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+
 def main() -> None:
+    _assert_prompt_matches_model()
     pg_dsn = _require("POSTGRES_DSN")
     os_url = _require("OPENSEARCH_URL")
 

@@ -22,6 +22,7 @@ def _context() -> TriageContext:
         distinct_rules_from_src_24h=2,
         events_last_10min=3,
         src_in_allowlist=False,
+        finding_seen_before=False,
         matched_rule="1002",
     )
 

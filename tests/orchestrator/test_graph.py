@@ -39,7 +39,7 @@ _NOW_TS = datetime(2026, 7, 20, 12, 30, 0, tzinfo=UTC)
 
 class _FrozenDatetime(datetime):
     @classmethod
-    def now(cls, tz: Any = None) -> "_FrozenDatetime":  # noqa: ANN401 - matches datetime.now's signature
+    def now(cls, tz: Any = None) -> _FrozenDatetime:  # noqa: ANN401 - matches datetime.now's signature
         return cls.fromtimestamp(_NOW_TS.timestamp(), tz=UTC)
 
 

@@ -36,6 +36,7 @@ def _context(*, degraded: bool = False) -> TriageContext:
         distinct_rules_from_src_24h=1,
         events_last_10min=5,
         src_in_allowlist=False,
+        finding_seen_before=False,
         matched_rule="2024358",
         lookup_degraded=degraded,
     )

@@ -4,7 +4,7 @@ Dataset record format (chat template, as defined in Trainning_Data_Plan §6):
     {
       "messages": [
         {"role": "system",    "content": "<production system prompt, verbatim>"},
-        {"role": "user",      "content": "<build_user_message(event_json, context_json)>"},
+        {"role": "user",      "content": "<build_user_message(event, context)>"},
         {"role": "assistant", "content": "<TriageModelOutput 5 fields, JSON>"}
       ]
     }
@@ -36,12 +36,10 @@ def make_record(
     output: TriageModelOutput,
 ) -> dict[str, Any]:
     """Return a single chat-template record dict (to be written as a JSONL line)."""
-    event_json = event.model_dump_json(exclude_none=True)
-    context_json = ctx.model_dump_json()
     return {
         "messages": [
             {"role": "system", "content": _SYSTEM_PROMPT},
-            {"role": "user", "content": build_user_message(event_json, context_json)},
+            {"role": "user", "content": build_user_message(event, ctx)},
             {"role": "assistant", "content": output.model_dump_json()},
         ]
     }
@@ -62,6 +60,7 @@ def blank_context(ctx: TriageContext) -> TriageContext:
         distinct_rules_from_src_24h=0,
         events_last_10min=0,
         src_in_allowlist=False,
+        finding_seen_before=False,
         matched_rule=ctx.matched_rule,
         lookup_degraded=True,
     )
@@ -81,8 +80,9 @@ _INJECTION_PAYLOADS = [
 def inject_adversarial(event: UnifiedEvent, *, seed: int | None = None) -> UnifiedEvent:
     """Return a copy of event with a prompt-injection attempt in the signature field.
 
-    The correct label for the returned event is always Classification.ALERT —
-    the model must classify on the event's actual facts, never obey payload instructions.
+    The correct label for the returned event is always Classification.ALERT — an attempt
+    to manipulate the triage model is itself adversarial activity (Labeling_Rubric,
+    decided 2026-10-01). The model must never obey the payload.
     The injected text is passed through build_user_message's neutralizer at record-build
     time, matching inference-time behavior.
     """
